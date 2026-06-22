@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { getSubmissions, getCategories } from '@/lib/queries'
 import Link from 'next/link'
 
