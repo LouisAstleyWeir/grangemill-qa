@@ -18,10 +18,10 @@ export async function submitQAForm(data: SubmitFormData): Promise<SubmitResult> 
   try {
     // 1. Insert submission
     const { data: submission, error: subError } = await supabaseAdmin
-      .from('submissions')
-      .insert(data.submission)
-      .select('id')
-      .single()
+  .from('submissions')
+  .insert(data.submission as never)
+  .select('id')
+  .single()
 
     if (subError || !submission) {
       console.error('Submission insert error:', subError)
@@ -43,8 +43,8 @@ export async function submitQAForm(data: SubmitFormData): Promise<SubmitResult> 
 
     if (responsesWithId.length > 0) {
       const { error: respError } = await supabaseAdmin
-        .from('responses')
-        .insert(responsesWithId)
+  .from('responses')
+  .insert(responsesWithId as never)
 
       if (respError) {
         console.error('Response insert error:', respError)
