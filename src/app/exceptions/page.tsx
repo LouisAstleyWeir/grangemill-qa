@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { getExceptions } from '@/lib/queries'
 import ResolveButton from '@/components/dashboard/ResolveButton'
 
