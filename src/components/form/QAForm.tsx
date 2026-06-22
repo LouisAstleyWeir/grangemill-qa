@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useCallback } from 'react'
 import type { TestSection, BranchRule, SampleCategory, Question } from '@/types'
 import { submitQAForm } from '@/app/actions'
 import QuestionField from './QuestionField'
@@ -24,10 +24,6 @@ export default function QAForm({ sections, branchRules, categories }: Props) {
   const [submitting, setSubmitting] = useState(false)
   const [result, setResult] = useState<{ success: boolean; message: string } | null>(null)
 
-  // Build section ID → code map once
-  const sectionCodeById = Object.fromEntries(sections.map((s) => [s.id, s.code]))
-
-  // Resolve which sections are visible given current state
   const visibleSectionIds = useCallback((): Set<string> => {
     const visible = new Set<string>()
     for (const rule of branchRules) {
@@ -62,36 +58,52 @@ export default function QAForm({ sections, branchRules, categories }: Props) {
   const validate = (): boolean => {
     const newErrors: Record<string, string> = {}
 
-    // Only validate fields in visible sections
-    const visibleFieldKeys = new Set<string>()
-    for (const section of visibleSections) {
-      for (const q of section.questions ?? []) {
-        visibleFieldKeys.add(q.field_key)
-      }
+    // Header fields always required
+    const headerRequired: Record<string, string> = {
+      date_of_sample: 'Date of sample',
+      time_taken: 'Time taken',
+      sampled_by: 'Sampled by',
+      tested_by: 'Tested by',
+      unique_id: 'Unique identification number',
+    }
+    for (const [key, label] of Object.entries(headerRequired)) {
+      const val = answers[key]
+      if (!val || val === '') newErrors[key] = `${label} is required`
     }
 
+    if (!categoryId)     newErrors['_category'] = 'Please select a category'
+    if (!materialTypeId) newErrors['_material'] = 'Please select a material type'
+
+    // Validate visible section questions
     for (const section of visibleSections) {
+      if (section.code === 'header') continue
       for (const q of section.questions ?? []) {
         if (!q.is_required) continue
-        if (q.field_key === 'ticket_upload') continue // optional file
+        if (q.field_key === 'ticket_upload') continue
+
+        // Skip conditionally hidden sub-questions
+        if (q.field_key.startsWith('bit_pen_') && q.field_key !== 'bit_pen_required') {
+          if (answers['bit_pen_required'] === 'false') continue
+        }
+        if (q.field_key === 'bit_sp') {
+          if (answers['bit_sp_required'] === 'false') continue
+        }
+        if (q.field_key.startsWith('bb_corr_') && q.field_key !== 'bb_corrected') {
+          if (answers['bb_corrected'] !== 'true') continue
+        }
+
+        // Skip header field keys already validated above
+        if (Object.keys(headerRequired).includes(q.field_key)) continue
 
         const val = answers[q.field_key]
         const isEmpty = val === undefined || val === null || val === '' ||
           (Array.isArray(val) && val.length === 0)
-
-        // Skip conditionally hidden sub-questions
-        if (q.field_key.startsWith('bit_pen_') && answers['bit_pen_required'] === 'false') continue
-        if (q.field_key === 'bit_sp' && answers['bit_sp_required'] === 'false') continue
-        if (q.field_key.startsWith('bb_corr_') && answers['bb_corrected'] !== 'true') continue
 
         if (isEmpty) {
           newErrors[q.field_key] = `${q.label} is required`
         }
       }
     }
-
-    if (!categoryId)    newErrors['_category']  = 'Please select a category'
-    if (!materialTypeId) newErrors['_material'] = 'Please select a material type'
 
     setErrors(newErrors)
     return Object.keys(newErrors).length === 0
@@ -107,7 +119,6 @@ export default function QAForm({ sections, branchRules, categories }: Props) {
     setSubmitting(true)
     setResult(null)
 
-    // Build responses array from all visible questions
     const allQuestions: Question[] = visibleSections.flatMap((s) => s.questions ?? [])
     const responses = allQuestions
       .filter((q) => q.field_key !== 'ticket_upload')
@@ -171,12 +182,13 @@ export default function QAForm({ sections, branchRules, categories }: Props) {
         </div>
       )}
 
-      {/* Sample selector — category / material / product cascade */}
       <SampleSelector
         categories={categories}
         categoryId={categoryId}
         materialTypeId={materialTypeId}
         productId={productId}
+        answers={answers}
+        onAnswer={(key, val) => handleAnswer(key, val)}
         onCategoryChange={(id, code) => {
           setCategoryId(id); setCategoryCode(code)
           setMaterialTypeId(''); setMaterialCode('')
@@ -192,9 +204,8 @@ export default function QAForm({ sections, branchRules, categories }: Props) {
         errors={errors}
       />
 
-      {/* Dynamic sections */}
       {visibleSections.map((section, idx) => {
-        if (section.code === 'header') return null // rendered inside SampleSelector
+        if (section.code === 'header') return null
 
         const questions = section.questions ?? []
         if (questions.length === 0) return null
@@ -203,7 +214,7 @@ export default function QAForm({ sections, branchRules, categories }: Props) {
           <div key={section.id} className="card" style={{ marginBottom: '1.5rem' }}>
             <div className="card-header">
               <div className="section-header" style={{ margin: 0, flex: 1 }}>
-                <div className="section-number">{idx}</div>
+                <div className="section-number">{idx + 1}</div>
                 <h2>{section.label}</h2>
               </div>
             </div>
