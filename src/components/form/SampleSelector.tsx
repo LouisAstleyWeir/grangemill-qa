@@ -11,12 +11,17 @@ interface Props {
   onCategoryChange: (id: string, code: string) => void
   onMaterialChange: (id: string, code: string) => void
   onProductChange: (id: string, code: string) => void
+  answers: Record<string, string | string[]>
+  onAnswer: (fieldKey: string, value: string) => void
   errors: Record<string, string>
 }
 
+const STAFF = ['Jonathan Buist', 'Hayley Whitworth', 'Dominic Birch', 'Jonny Gregg']
+
 export default function SampleSelector({
   categories, categoryId, materialTypeId, productId,
-  onCategoryChange, onMaterialChange, onProductChange, errors,
+  onCategoryChange, onMaterialChange, onProductChange,
+  answers, onAnswer, errors,
 }: Props) {
   const [materials, setMaterials] = useState<MaterialType[]>([])
   const [products, setProducts] = useState<Product[]>([])
@@ -51,11 +56,75 @@ export default function SampleSelector({
       </div>
       <div className="card-body">
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '1.25rem' }}>
+
+          {/* Date */}
+          <div className="form-group">
+            <label>Date of sample <span className="required">*</span></label>
+            <input
+              type="date"
+              value={String(answers['date_of_sample'] ?? '')}
+              onChange={(e) => onAnswer('date_of_sample', e.target.value)}
+              className={errors['date_of_sample'] ? 'error' : ''}
+            />
+            {errors['date_of_sample'] && <span style={{ color: 'var(--c-danger)', fontSize: '0.8125rem' }}>{errors['date_of_sample']}</span>}
+          </div>
+
+          {/* Time */}
+          <div className="form-group">
+            <label>Time taken <span className="required">*</span></label>
+            <input
+              type="time"
+              value={String(answers['time_taken'] ?? '')}
+              onChange={(e) => onAnswer('time_taken', e.target.value)}
+              className={errors['time_taken'] ? 'error' : ''}
+            />
+            {errors['time_taken'] && <span style={{ color: 'var(--c-danger)', fontSize: '0.8125rem' }}>{errors['time_taken']}</span>}
+          </div>
+
+          {/* Sampled by */}
+          <div className="form-group">
+            <label>Sampled by <span className="required">*</span></label>
+            <select
+              value={String(answers['sampled_by'] ?? '')}
+              onChange={(e) => onAnswer('sampled_by', e.target.value)}
+              className={errors['sampled_by'] ? 'error' : ''}
+            >
+              <option value="">Select…</option>
+              {STAFF.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+            {errors['sampled_by'] && <span style={{ color: 'var(--c-danger)', fontSize: '0.8125rem' }}>{errors['sampled_by']}</span>}
+          </div>
+
+          {/* Tested by */}
+          <div className="form-group">
+            <label>Tested by <span className="required">*</span></label>
+            <select
+              value={String(answers['tested_by'] ?? '')}
+              onChange={(e) => onAnswer('tested_by', e.target.value)}
+              className={errors['tested_by'] ? 'error' : ''}
+            >
+              <option value="">Select…</option>
+              {STAFF.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+            {errors['tested_by'] && <span style={{ color: 'var(--c-danger)', fontSize: '0.8125rem' }}>{errors['tested_by']}</span>}
+          </div>
+
+          {/* Unique ID */}
+          <div className="form-group">
+            <label>Unique identification number <span className="required">*</span></label>
+            <input
+              type="text"
+              value={String(answers['unique_id'] ?? '')}
+              onChange={(e) => onAnswer('unique_id', e.target.value)}
+              placeholder="e.g. GM-2026-001"
+              className={errors['unique_id'] ? 'error' : ''}
+            />
+            {errors['unique_id'] && <span style={{ color: 'var(--c-danger)', fontSize: '0.8125rem' }}>{errors['unique_id']}</span>}
+          </div>
+
           {/* Category */}
           <div className="form-group">
-            <label>
-              Category of sample <span className="required">*</span>
-            </label>
+            <label>Category of sample <span className="required">*</span></label>
             <select
               value={categoryId}
               onChange={(e) => {
@@ -69,17 +138,13 @@ export default function SampleSelector({
                 <option key={c.id} value={c.id}>{c.label}</option>
               ))}
             </select>
-            {errors['_category'] && (
-              <span style={{ color: 'var(--c-danger)', fontSize: '0.8125rem' }}>{errors['_category']}</span>
-            )}
+            {errors['_category'] && <span style={{ color: 'var(--c-danger)', fontSize: '0.8125rem' }}>{errors['_category']}</span>}
           </div>
 
           {/* Material type */}
           {categoryId && (
             <div className="form-group">
-              <label>
-                Material type <span className="required">*</span>
-              </label>
+              <label>Material type <span className="required">*</span></label>
               <select
                 value={materialTypeId}
                 onChange={(e) => {
@@ -94,13 +159,11 @@ export default function SampleSelector({
                   <option key={m.id} value={m.id}>{m.label}</option>
                 ))}
               </select>
-              {errors['_material'] && (
-                <span style={{ color: 'var(--c-danger)', fontSize: '0.8125rem' }}>{errors['_material']}</span>
-              )}
+              {errors['_material'] && <span style={{ color: 'var(--c-danger)', fontSize: '0.8125rem' }}>{errors['_material']}</span>}
             </div>
           )}
 
-          {/* Product — only if products exist for this material type */}
+          {/* Product */}
           {materialTypeId && products.length > 0 && (
             <div className="form-group">
               <label>Specific product / grade</label>
@@ -119,6 +182,7 @@ export default function SampleSelector({
               </select>
             </div>
           )}
+
         </div>
       </div>
     </div>
