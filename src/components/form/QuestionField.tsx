@@ -2,7 +2,7 @@
 
 import type { Question } from '@/types'
 
-// Maps each calculated field to its source fields
+// ── Calculated means ─────────────────────────────────────────────────────────
 const CALCULATED_MEANS: Record<string, [string, string] | [string, string, string]> = {
   bit_pen_mean:          ['bit_pen_1',         'bit_pen_2',         'bit_pen_3'],
   bb_pen_mean:           ['bb_pen_1',           'bb_pen_2',           'bb_pen_3'],
@@ -13,6 +13,28 @@ const CALCULATED_MEANS: Record<string, [string, string] | [string, string, strin
   fp_bit_cone_pen_mean:  ['fp_bit_cone_pen_1',  'fp_bit_cone_pen_2',  'fp_bit_cone_pen_3'],
   c1_mean_binder:        ['c1_a_binder',        'c1_1_binder'],
   c2_mean_binder:        ['c2_a_binder',        'c2_1_binder'],
+}
+
+// ── Aggregate sieve fields with their total mass source ───────────────────────
+const AGG_SIEVE_FIELDS: Record<string, string> = {
+  agg6_ret_0075:  'agg6_total_mass',
+  agg6_ret_0212:  'agg6_total_mass',
+  agg6_ret_0600:  'agg6_total_mass',
+  agg6_ret_100:   'agg6_total_mass',
+  agg6_ret_200:   'agg6_total_mass',
+  agg6_ret_400:   'agg6_total_mass',
+  agg6_ret_630:   'agg6_total_mass',
+  agg6_ret_1000:  'agg6_total_mass',
+  agg6_ret_1400:  'agg6_total_mass',
+  agg10_ret_0075: 'agg10_total_mass',
+  agg10_ret_0600: 'agg10_total_mass',
+  agg10_ret_100:  'agg10_total_mass',
+  agg10_ret_200:  'agg10_total_mass',
+  agg10_ret_400:  'agg10_total_mass',
+  agg10_ret_630:  'agg10_total_mass',
+  agg10_ret_1000: 'agg10_total_mass',
+  agg10_ret_1400: 'agg10_total_mass',
+  agg10_ret_2000: 'agg10_total_mass',
 }
 
 function calcMean(
@@ -26,6 +48,13 @@ function calcMean(
   return parseFloat(mean.toFixed(2)).toString()
 }
 
+function calcPct(retained: string, totalMassKey: string, allAnswers: Record<string, string | string[]>): string {
+  const ret   = parseFloat(retained)
+  const total = parseFloat(String(allAnswers[totalMassKey] ?? ''))
+  if (isNaN(ret) || isNaN(total) || total === 0) return ''
+  return parseFloat(((ret / total) * 100).toFixed(1)).toString()
+}
+
 interface Props {
   question: Question
   value: string | string[] | undefined
@@ -37,7 +66,7 @@ interface Props {
 export default function QuestionField({ question, value, onChange, error, allAnswers }: Props) {
   const { field_key, label, question_type, options, is_required, spec_min, spec_max, help_text } = question
 
-  // Conditional visibility for sub-questions
+  // ── Conditional visibility ────────────────────────────────────────────────
   if (field_key.startsWith('bit_pen_') && field_key !== 'bit_pen_required') {
     if (allAnswers['bit_pen_required'] === 'false') return null
   }
@@ -48,7 +77,7 @@ export default function QuestionField({ question, value, onChange, error, allAns
     if (allAnswers['bb_corrected'] !== 'true') return null
   }
 
-  // ── Calculated field ───────────────────────────────────────────────────────
+  // ── Calculated mean field ─────────────────────────────────────────────────
   if (CALCULATED_MEANS[field_key]) {
     const sources = CALCULATED_MEANS[field_key]
     const calculated = calcMean(sources, allAnswers)
@@ -107,6 +136,88 @@ export default function QuestionField({ question, value, onChange, error, allAns
             ⚠ Outside specification limit
           </span>
         )}
+      </div>
+    )
+  }
+
+  // ── Aggregate sieve field — input + calculated % pair ────────────────────
+  if (AGG_SIEVE_FIELDS[field_key]) {
+    const totalMassKey = AGG_SIEVE_FIELDS[field_key]
+    const strVal = String(value ?? '')
+    const pct = calcPct(strVal, totalMassKey, allAnswers)
+    const totalMassSet = !!allAnswers[totalMassKey]
+
+    const hasSpecLimit = spec_min !== null || spec_max !== null
+    const numVal = parseFloat(strVal)
+    const outOfSpec = hasSpecLimit && !isNaN(numVal) && (
+      (spec_min !== null && numVal < spec_min) ||
+      (spec_max !== null && numVal > spec_max)
+    )
+
+    return (
+      <div className="form-group" style={{ gridColumn: 'span 2' }}>
+        <label htmlFor={field_key}>
+          {label}
+          {is_required && <span className="required"> *</span>}
+        </label>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', alignItems: 'start' }}>
+          {/* Grams input */}
+          <div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--c-text-3)', marginBottom: 4 }}>
+              Weight retained (g)
+            </div>
+            <input
+              id={field_key}
+              type="number"
+              step="any"
+              value={strVal}
+              onChange={(e) => onChange(e.target.value)}
+              className={error ? 'error' : ''}
+              style={outOfSpec ? { borderColor: 'var(--c-warn)', boxShadow: '0 0 0 3px var(--c-warn-bg)' } : {}}
+            />
+          </div>
+
+          {/* Calculated % */}
+          <div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--c-text-3)', marginBottom: 4 }}>
+              % of total mass
+            </div>
+            <div style={{
+              padding: '0.5rem 0.75rem',
+              background: pct ? 'var(--c-slate-light)' : 'var(--c-surface-2)',
+              border: '1px solid var(--c-border)',
+              borderRadius: 'var(--radius-md)',
+              fontFamily: 'var(--font-mono)',
+              fontSize: '0.9375rem',
+              color: pct ? 'var(--c-slate)' : 'var(--c-text-3)',
+              fontWeight: pct ? 600 : 400,
+              minHeight: '2.375rem',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+            }}>
+              <span>{pct ? `${pct}%` : totalMassSet ? 'Enter weight' : 'Enter total mass first'}</span>
+              {pct && (
+                <span style={{
+                  fontSize: '0.6875rem',
+                  fontFamily: 'var(--font-sans)',
+                  fontWeight: 500,
+                  letterSpacing: '0.05em',
+                  textTransform: 'uppercase',
+                  color: 'var(--c-text-3)',
+                }}>
+                  calc
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+        {outOfSpec && (
+          <span style={{ color: 'var(--c-warn)', fontSize: '0.8125rem' }}>
+            ⚠ Outside specification limit
+          </span>
+        )}
+        {error && <FieldError msg={error} />}
       </div>
     )
   }
