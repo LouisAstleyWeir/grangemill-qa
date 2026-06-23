@@ -2,7 +2,7 @@
 
 import type { Question } from '@/types'
 
-// ── Calculated means ─────────────────────────────────────────────────────────
+// ── Calculated means ──────────────────────────────────────────────────────────
 const CALCULATED_MEANS: Record<string, [string, string] | [string, string, string]> = {
   bit_pen_mean:          ['bit_pen_1',         'bit_pen_2',         'bit_pen_3'],
   bb_pen_mean:           ['bb_pen_1',           'bb_pen_2',           'bb_pen_3'],
@@ -37,6 +37,27 @@ const AGG_SIEVE_FIELDS: Record<string, string> = {
   agg10_ret_2000: 'agg10_total_mass',
 }
 
+// ── % Coarse aggregate summary fields ────────────────────────────────────────
+const AGG_PCT_COARSE: Record<string, { fields: string[]; totalKey: string }> = {
+  agg6_pct_coarse: {
+    totalKey: 'agg6_total_mass',
+    fields: [
+      'agg6_ret_0075', 'agg6_ret_0212', 'agg6_ret_0600',
+      'agg6_ret_100',  'agg6_ret_200',  'agg6_ret_400',
+      'agg6_ret_630',  'agg6_ret_1000', 'agg6_ret_1400',
+    ],
+  },
+  agg10_pct_coarse: {
+    totalKey: 'agg10_total_mass',
+    fields: [
+      'agg10_ret_0075', 'agg10_ret_0600', 'agg10_ret_100',
+      'agg10_ret_200',  'agg10_ret_400',  'agg10_ret_630',
+      'agg10_ret_1000', 'agg10_ret_1400', 'agg10_ret_2000',
+    ],
+  },
+}
+
+// ── Helper functions ──────────────────────────────────────────────────────────
 function calcMean(
   sources: [string, string] | [string, string, string],
   allAnswers: Record<string, string | string[]>
@@ -55,6 +76,7 @@ function calcPct(retained: string, totalMassKey: string, allAnswers: Record<stri
   return parseFloat(((ret / total) * 100).toFixed(1)).toString()
 }
 
+// ── Types ─────────────────────────────────────────────────────────────────────
 interface Props {
   question: Question
   value: string | string[] | undefined
@@ -63,6 +85,7 @@ interface Props {
   allAnswers: Record<string, string | string[]>
 }
 
+// ── Component ─────────────────────────────────────────────────────────────────
 export default function QuestionField({ question, value, onChange, error, allAnswers }: Props) {
   const { field_key, label, question_type, options, is_required, spec_min, spec_max, help_text } = question
 
@@ -140,6 +163,78 @@ export default function QuestionField({ question, value, onChange, error, allAns
     )
   }
 
+  // ── % Coarse aggregate calculated field ───────────────────────────────────
+  if (AGG_PCT_COARSE[field_key]) {
+    const { fields, totalKey } = AGG_PCT_COARSE[field_key]
+    const total = parseFloat(String(allAnswers[totalKey] ?? ''))
+
+    const sumRetained = fields.reduce((acc, k) => {
+      const v = parseFloat(String(allAnswers[k] ?? ''))
+      return acc + (isNaN(v) ? 0 : v)
+    }, 0)
+
+    const calculated = !isNaN(total) && total > 0
+      ? parseFloat(((sumRetained / total) * 100).toFixed(1)).toString()
+      : ''
+
+    if (calculated !== String(value ?? '')) {
+      setTimeout(() => onChange(calculated), 0)
+    }
+
+    const hasSpecLimit = spec_min !== null || spec_max !== null
+    const numVal = parseFloat(calculated)
+    const outOfSpec = hasSpecLimit && !isNaN(numVal) && (
+      (spec_min !== null && numVal < spec_min) ||
+      (spec_max !== null && numVal > spec_max)
+    )
+
+    return (
+      <div className="form-group" style={{ gridColumn: 'span 2' }}>
+        <label>
+          {label}
+          {hasSpecLimit && (
+            <span style={{ fontWeight: 400, color: 'var(--c-text-3)', marginLeft: 6 }}>
+              ({spec_min !== null ? `min ${spec_min}` : ''}{spec_min !== null && spec_max !== null ? ', ' : ''}{spec_max !== null ? `max ${spec_max}` : ''})
+            </span>
+          )}
+        </label>
+        <div style={{
+          padding: '0.75rem 1rem',
+          background: calculated ? 'var(--c-accent-light)' : 'var(--c-surface-2)',
+          border: `1px solid ${outOfSpec ? 'var(--c-warn)' : calculated ? 'var(--c-accent)' : 'var(--c-border)'}`,
+          borderRadius: 'var(--radius-md)',
+          fontFamily: 'var(--font-mono)',
+          fontSize: '1.125rem',
+          color: calculated ? 'var(--c-accent-dark)' : 'var(--c-text-3)',
+          fontWeight: calculated ? 700 : 400,
+          minHeight: '2.75rem',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+        }}>
+          <span>{calculated ? `${calculated}%` : 'Calculated from sieve weights above'}</span>
+          {calculated && (
+            <span style={{
+              fontSize: '0.6875rem',
+              fontFamily: 'var(--font-sans)',
+              fontWeight: 500,
+              letterSpacing: '0.05em',
+              textTransform: 'uppercase',
+              color: 'var(--c-accent)',
+            }}>
+              % coarse
+            </span>
+          )}
+        </div>
+        {outOfSpec && (
+          <span style={{ color: 'var(--c-warn)', fontSize: '0.8125rem' }}>
+            ⚠ Outside specification limit
+          </span>
+        )}
+      </div>
+    )
+  }
+
   // ── Aggregate sieve field — input + calculated % pair ────────────────────
   if (AGG_SIEVE_FIELDS[field_key]) {
     const totalMassKey = AGG_SIEVE_FIELDS[field_key]
@@ -161,7 +256,6 @@ export default function QuestionField({ question, value, onChange, error, allAns
           {is_required && <span className="required"> *</span>}
         </label>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', alignItems: 'start' }}>
-          {/* Grams input */}
           <div>
             <div style={{ fontSize: '0.75rem', color: 'var(--c-text-3)', marginBottom: 4 }}>
               Weight retained (g)
@@ -176,8 +270,6 @@ export default function QuestionField({ question, value, onChange, error, allAns
               style={outOfSpec ? { borderColor: 'var(--c-warn)', boxShadow: '0 0 0 3px var(--c-warn-bg)' } : {}}
             />
           </div>
-
-          {/* Calculated % */}
           <div>
             <div style={{ fontSize: '0.75rem', color: 'var(--c-text-3)', marginBottom: 4 }}>
               % of total mass
@@ -222,7 +314,7 @@ export default function QuestionField({ question, value, onChange, error, allAns
     )
   }
 
-  // ── Standard fields ────────────────────────────────────────────────────────
+  // ── Standard fields ───────────────────────────────────────────────────────
   const strValue = Array.isArray(value) ? value : (value ?? '')
   const hasSpecLimit = spec_min !== null || spec_max !== null
   const numVal = parseFloat(String(strValue))
