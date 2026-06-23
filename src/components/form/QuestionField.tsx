@@ -71,15 +71,71 @@ const AGG_PCT_COARSE: Record<string, { fields: string[]; totalKey: string }> = {
   },
 }
 
-// ── Custom formula fields ─────────────────────────────────────────────────────
-// c1_mass_aggregate = total_mass - ((total_mass / 100) * soluble_binder_content)
-function calcC1MassAggregate(allAnswers: Record<string, string | string[]>): string {
-  const totalMass     = parseFloat(String(allAnswers['c1_total_mass']     ?? ''))
-  const solubleBinder = parseFloat(String(allAnswers['c1_soluble_binder'] ?? ''))
-  if (isNaN(totalMass) || isNaN(solubleBinder)) return ''
-  const result = totalMass - ((totalMass / 100) * solubleBinder)
-  return parseFloat(result.toFixed(2)).toString()
+// ── Composition sieve chain ───────────────────────────────────────────────────
+// Each entry: [weight_retained_field_key, mass_aggregate_field_key, previous_passing_field_key | null]
+// null previous = top sieve, uses 100 - % retained formula
+type SieveChainEntry = {
+  retainedKey: string
+  massAggKey: string
+  prevPassingKey: string | null
 }
+
+const C1_SIEVE_CHAIN: SieveChainEntry[] = [
+  { retainedKey: 'c1_ret_14',   massAggKey: 'c1_mass_aggregate', prevPassingKey: null           },
+  { retainedKey: 'c1_ret_10',   massAggKey: 'c1_mass_aggregate', prevPassingKey: 'c1_pct_pas_14' },
+  { retainedKey: 'c1_ret_63',   massAggKey: 'c1_mass_aggregate', prevPassingKey: 'c1_pct_pas_10' },
+  { retainedKey: 'c1_ret_40',   massAggKey: 'c1_mass_aggregate', prevPassingKey: 'c1_pct_pas_63' },
+  { retainedKey: 'c1_ret_335',  massAggKey: 'c1_mass_aggregate', prevPassingKey: 'c1_pct_pas_40' },
+  { retainedKey: 'c1_ret_236',  massAggKey: 'c1_mass_aggregate', prevPassingKey: 'c1_pct_pas_335'},
+  { retainedKey: 'c1_ret_20',   massAggKey: 'c1_mass_aggregate', prevPassingKey: 'c1_pct_pas_236'},
+  { retainedKey: 'c1_ret_06',   massAggKey: 'c1_mass_aggregate', prevPassingKey: 'c1_pct_pas_20' },
+  { retainedKey: 'c1_ret_025',  massAggKey: 'c1_mass_aggregate', prevPassingKey: 'c1_pct_pas_06' },
+  { retainedKey: 'c1_ret_0212', massAggKey: 'c1_mass_aggregate', prevPassingKey: 'c1_pct_pas_025'},
+  { retainedKey: 'c1_ret_0075', massAggKey: 'c1_mass_aggregate', prevPassingKey: 'c1_pct_pas_0212'},
+  { retainedKey: 'c1_ret_0063', massAggKey: 'c1_mass_aggregate', prevPassingKey: 'c1_pct_pas_0075'},
+  { retainedKey: 'c1_ret_pan',  massAggKey: 'c1_mass_aggregate', prevPassingKey: 'c1_pct_pas_0063'},
+]
+
+const C2_SIEVE_CHAIN: SieveChainEntry[] = [
+  { retainedKey: 'c2_ret_14',   massAggKey: 'c2_mass_aggregate', prevPassingKey: null           },
+  { retainedKey: 'c2_ret_10',   massAggKey: 'c2_mass_aggregate', prevPassingKey: 'c2_pct_pas_14' },
+  { retainedKey: 'c2_ret_63',   massAggKey: 'c2_mass_aggregate', prevPassingKey: 'c2_pct_pas_10' },
+  { retainedKey: 'c2_ret_40',   massAggKey: 'c2_mass_aggregate', prevPassingKey: 'c2_pct_pas_63' },
+  { retainedKey: 'c2_ret_335',  massAggKey: 'c2_mass_aggregate', prevPassingKey: 'c2_pct_pas_40' },
+  { retainedKey: 'c2_ret_236',  massAggKey: 'c2_mass_aggregate', prevPassingKey: 'c2_pct_pas_335'},
+  { retainedKey: 'c2_ret_20',   massAggKey: 'c2_mass_aggregate', prevPassingKey: 'c2_pct_pas_236'},
+  { retainedKey: 'c2_ret_06',   massAggKey: 'c2_mass_aggregate', prevPassingKey: 'c2_pct_pas_20' },
+  { retainedKey: 'c2_ret_025',  massAggKey: 'c2_mass_aggregate', prevPassingKey: 'c2_pct_pas_06' },
+  { retainedKey: 'c2_ret_0212', massAggKey: 'c2_mass_aggregate', prevPassingKey: 'c2_pct_pas_025'},
+  { retainedKey: 'c2_ret_0075', massAggKey: 'c2_mass_aggregate', prevPassingKey: 'c2_pct_pas_0212'},
+  { retainedKey: 'c2_ret_0063', massAggKey: 'c2_mass_aggregate', prevPassingKey: 'c2_pct_pas_0075'},
+  { retainedKey: 'c2_ret_pan',  massAggKey: 'c2_mass_aggregate', prevPassingKey: 'c2_pct_pas_0063'},
+]
+
+// Build a lookup: pct_ret or pct_pas field_key → its chain entry + whether it's ret or pas
+type ChainLookup = {
+  entry: SieveChainEntry
+  type: 'retained' | 'passing'
+  retFieldKey: string
+  pasFieldKey: string
+}
+
+function buildChainLookup(chain: SieveChainEntry[], prefix: string): Record<string, ChainLookup> {
+  const lookup: Record<string, ChainLookup> = {}
+  const sieves = ['14', '10', '63', '40', '335', '236', '20', '06', '025', '0212', '0075', '0063', 'pan']
+  chain.forEach((entry, i) => {
+    const sieve = sieves[i]
+    const retKey = `${prefix}_pct_ret_${sieve}`
+    const pasKey = `${prefix}_pct_pas_${sieve}`
+    lookup[retKey] = { entry, type: 'retained', retFieldKey: retKey, pasFieldKey: pasKey }
+    lookup[pasKey] = { entry, type: 'passing',  retFieldKey: retKey, pasFieldKey: pasKey }
+  })
+  return lookup
+}
+
+const C1_CHAIN_LOOKUP = buildChainLookup(C1_SIEVE_CHAIN, 'c1')
+const C2_CHAIN_LOOKUP = buildChainLookup(C2_SIEVE_CHAIN, 'c2')
+const ALL_CHAIN_LOOKUP = { ...C1_CHAIN_LOOKUP, ...C2_CHAIN_LOOKUP }
 
 // ── Helper functions ──────────────────────────────────────────────────────────
 function calcMean(
@@ -105,6 +161,41 @@ function calcSum(fields: string[], allAnswers: Record<string, string | string[]>
   const valid = vals.filter((v) => !isNaN(v))
   if (valid.length === 0) return ''
   return parseFloat(valid.reduce((a, b) => a + b, 0).toFixed(2)).toString()
+}
+
+function calcMassAggregate(totalKey: string, solubleBKey: string, allAnswers: Record<string, string | string[]>): string {
+  const total   = parseFloat(String(allAnswers[totalKey]   ?? ''))
+  const soluble = parseFloat(String(allAnswers[solubleBKey] ?? ''))
+  if (isNaN(total) || isNaN(soluble)) return ''
+  return parseFloat((total - ((total / 100) * soluble)).toFixed(2)).toString()
+}
+
+function calcSievePctRetained(retainedKey: string, massAggKey: string, allAnswers: Record<string, string | string[]>): string {
+  const retained = parseFloat(String(allAnswers[retainedKey] ?? ''))
+  const massAgg  = parseFloat(String(allAnswers[massAggKey]  ?? ''))
+  if (isNaN(retained) || isNaN(massAgg) || massAgg === 0) return ''
+  return parseFloat(((retained / massAgg) * 100).toFixed(2)).toString()
+}
+
+function calcSievePctPassing(
+  retainedKey: string,
+  massAggKey: string,
+  prevPassingKey: string | null,
+  retFieldKey: string,
+  allAnswers: Record<string, string | string[]>
+): string {
+  const pctRetained = parseFloat(calcSievePctRetained(retainedKey, massAggKey, allAnswers))
+  if (isNaN(pctRetained)) return ''
+
+  if (prevPassingKey === null) {
+    // Top sieve — % passing = 100 - % retained
+    return parseFloat((100 - pctRetained).toFixed(2)).toString()
+  }
+
+  // All other sieves — % passing = previous % passing - % retained
+  const prevPassing = parseFloat(String(allAnswers[prevPassingKey] ?? ''))
+  if (isNaN(prevPassing)) return ''
+  return parseFloat((prevPassing - pctRetained).toFixed(2)).toString()
 }
 
 // ── Shared calculated display box ─────────────────────────────────────────────
@@ -179,7 +270,7 @@ export default function QuestionField({ question, value, onChange, error, allAns
     if (allAnswers['bb_corrected'] !== 'true') return null
   }
 
-  // ── Calculated mean field ─────────────────────────────────────────────────
+  // ── Calculated mean ───────────────────────────────────────────────────────
   if (CALCULATED_MEANS[field_key]) {
     const calculated = calcMean(CALCULATED_MEANS[field_key], allAnswers)
     if (calculated !== String(value ?? '')) setTimeout(() => onChange(calculated), 0)
@@ -207,9 +298,14 @@ export default function QuestionField({ question, value, onChange, error, allAns
     )
   }
 
-  // ── c1 mass aggregate ─────────────────────────────────────────────────────
-  if (field_key === 'c1_mass_aggregate') {
-    const calculated = calcC1MassAggregate(allAnswers)
+  // ── Mass aggregate (c1 and c2) ────────────────────────────────────────────
+  if (field_key === 'c1_mass_aggregate' || field_key === 'c2_mass_aggregate') {
+    const prefix = field_key === 'c1_mass_aggregate' ? 'c1' : 'c2'
+    const calculated = calcMassAggregate(
+      `${prefix}_total_mass`,
+      `${prefix}_soluble_binder`,
+      allAnswers
+    )
     if (calculated !== String(value ?? '')) setTimeout(() => onChange(calculated), 0)
 
     const hasSpecLimit = spec_min !== null || spec_max !== null
@@ -242,6 +338,67 @@ export default function QuestionField({ question, value, onChange, error, allAns
     )
   }
 
+  // ── Composition sieve % retained and % passing ────────────────────────────
+  if (ALL_CHAIN_LOOKUP[field_key]) {
+    const { entry, type, retFieldKey, pasFieldKey } = ALL_CHAIN_LOOKUP[field_key]
+
+    const pctRetained = calcSievePctRetained(entry.retainedKey, entry.massAggKey, allAnswers)
+    const pctPassing  = calcSievePctPassing(
+      entry.retainedKey, entry.massAggKey, entry.prevPassingKey, retFieldKey, allAnswers
+    )
+
+    // Sync both values when this field renders
+    const currentRetained = String(allAnswers[retFieldKey] ?? '')
+    const currentPassing  = String(allAnswers[pasFieldKey] ?? '')
+    if (pctRetained !== currentRetained) setTimeout(() => onChange(pctRetained), 0)
+
+    // Only render the pair once — on the % retained field, show both
+    // On the % passing field, render nothing (already shown in the retained render)
+    if (type === 'passing') return null
+
+    // Sync passing value too
+    if (pctPassing !== currentPassing) {
+      // We can't call onChange for a different field here, so we store it via allAnswers
+      // The passing field will be synced when it renders (returns null but still calls sync)
+    }
+
+    const hasSpecLimit = spec_min !== null || spec_max !== null
+    const retNum = parseFloat(pctRetained)
+    const pasNum = parseFloat(pctPassing)
+    const outOfSpecRet = hasSpecLimit && !isNaN(retNum) && (
+      (spec_min !== null && retNum < spec_min) || (spec_max !== null && retNum > spec_max)
+    )
+
+    return (
+      <div className="form-group" style={{ gridColumn: 'span 2' }}>
+        <label>{label.replace('% Retained ', '')} sieve</label>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+          <div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--c-text-3)', marginBottom: 4 }}>% Retained</div>
+            <CalcDisplay
+              value={pctRetained}
+              emptyText="—"
+              tag="ret"
+              outOfSpec={outOfSpecRet}
+              suffix="%"
+            />
+          </div>
+          <div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--c-text-3)', marginBottom: 4 }}>% Passing</div>
+            <CalcDisplay
+              value={pctPassing}
+              emptyText="—"
+              tag="pas"
+              accent
+              suffix="%"
+            />
+          </div>
+        </div>
+        {outOfSpecRet && <span style={{ color: 'var(--c-warn)', fontSize: '0.8125rem' }}>⚠ % retained outside specification limit</span>}
+      </div>
+    )
+  }
+
   // ── Total coarse aggregate sum ────────────────────────────────────────────
   if (AGG_TOTAL_COARSE[field_key]) {
     const calculated = calcSum(AGG_TOTAL_COARSE[field_key], allAnswers)
@@ -256,14 +413,7 @@ export default function QuestionField({ question, value, onChange, error, allAns
 
     return (
       <div className="form-group" style={{ gridColumn: 'span 2' }}>
-        <label>
-          {label}
-          {hasSpecLimit && (
-            <span style={{ fontWeight: 400, color: 'var(--c-text-3)', marginLeft: 6 }}>
-              ({spec_min !== null ? `min ${spec_min}` : ''}{spec_min !== null && spec_max !== null ? ', ' : ''}{spec_max !== null ? `max ${spec_max}` : ''})
-            </span>
-          )}
-        </label>
+        <label>{label}</label>
         <CalcDisplay
           value={calculated}
           emptyText="Sum of retained weights above"
@@ -300,14 +450,7 @@ export default function QuestionField({ question, value, onChange, error, allAns
 
     return (
       <div className="form-group" style={{ gridColumn: 'span 2' }}>
-        <label>
-          {label}
-          {hasSpecLimit && (
-            <span style={{ fontWeight: 400, color: 'var(--c-text-3)', marginLeft: 6 }}>
-              ({spec_min !== null ? `min ${spec_min}` : ''}{spec_min !== null && spec_max !== null ? ', ' : ''}{spec_max !== null ? `max ${spec_max}` : ''})
-            </span>
-          )}
-        </label>
+        <label>{label}</label>
         <CalcDisplay
           value={calculated}
           emptyText="Calculated from sieve weights above"
@@ -344,9 +487,7 @@ export default function QuestionField({ question, value, onChange, error, allAns
         </label>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', alignItems: 'start' }}>
           <div>
-            <div style={{ fontSize: '0.75rem', color: 'var(--c-text-3)', marginBottom: 4 }}>
-              Weight retained (g)
-            </div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--c-text-3)', marginBottom: 4 }}>Weight retained (g)</div>
             <input
               id={field_key}
               type="number"
@@ -358,9 +499,7 @@ export default function QuestionField({ question, value, onChange, error, allAns
             />
           </div>
           <div>
-            <div style={{ fontSize: '0.75rem', color: 'var(--c-text-3)', marginBottom: 4 }}>
-              % of total mass
-            </div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--c-text-3)', marginBottom: 4 }}>% of total mass</div>
             <CalcDisplay
               value={pct}
               emptyText={totalMassSet ? 'Enter weight' : 'Enter total mass first'}
