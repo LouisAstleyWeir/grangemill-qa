@@ -1,47 +1,400 @@
-interface Props {
-  width?: number
-  height?: number
-  className?: string
-}
+'use client'
 
-export default function IKOLogo({ width = 120, height = 40, className }: Props) {
+import { useEffect, useRef, useState } from 'react'
+
+export default function LabLoader() {
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const [phase, setPhase] = useState<'visible' | 'fading' | 'gone'>('visible')
+  const [label, setLabel] = useState('Initialising…')
+  const animRef = useRef<number | null>(null)
+  const tRef = useRef(0)
+
+  useEffect(() => {
+    const fade = setTimeout(() => setPhase('fading'), 4600)
+    const gone = setTimeout(() => setPhase('gone'), 5200)
+    return () => { clearTimeout(fade); clearTimeout(gone) }
+  }, [])
+
+  useEffect(() => {
+    const cv = canvasRef.current
+    if (!cv) return
+    const ctx = cv.getContext('2d')!
+    const W = 480, H = 480, CX = W / 2, CY = H / 2
+    const RED = '#E41B13', NAVY = '#1C2B4B', WHITE = '#FFFFFF'
+
+    function easeOut(x: number) { return 1 - (1 - x) * (1 - x) }
+    function easeInOut(x: number) { return x < 0.5 ? 2 * x * x : 1 - Math.pow(-2 * x + 2, 2) / 2 }
+    function clamp(v: number, a: number, b: number) { return Math.max(a, Math.min(b, v)) }
+    function lerp(a: number, b: number, t: number) { return a + (b - a) * t }
+
+    const PHASE_T = [0, 120, 240, 340, 420]
+    function getPhase(t: number) {
+      for (let i = 0; i < PHASE_T.length - 1; i++) if (t < PHASE_T[i + 1]) return i
+      return PHASE_T.length - 2
+    }
+    function getPhaseT(t: number) {
+      const p = getPhase(t)
+      return clamp((t - PHASE_T[p]) / (PHASE_T[p + 1] - PHASE_T[p]), 0, 1)
+    }
+
+    function drawGrid() {
+      ctx.save()
+      ctx.strokeStyle = 'rgba(255,255,255,0.04)'
+      ctx.lineWidth = 1
+      for (let x = 0; x <= W; x += 30) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke() }
+      for (let y = 0; y <= H; y += 30) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke() }
+      ctx.restore()
+    }
+
+    function drawDroplet(progress: number) {
+      const dropY = lerp(40, CY - 50, clamp(progress * 1.5, 0, 1))
+      const splat = clamp((progress - 0.5) / 0.5, 0, 1)
+      const se = easeInOut(splat)
+      if (progress < 0.55) {
+        ctx.save()
+        const sz = lerp(6, 20, clamp(progress * 2, 0, 1))
+        ctx.beginPath()
+        ctx.arc(CX, dropY, sz * 0.7, 0, Math.PI * 2)
+        ctx.moveTo(CX, dropY - sz)
+        ctx.bezierCurveTo(CX + sz * 0.4, dropY - sz * 2.2, CX + sz * 0.4, dropY - sz * 3.5, CX, dropY - sz * 3.8)
+        ctx.bezierCurveTo(CX - sz * 0.4, dropY - sz * 3.5, CX - sz * 0.4, dropY - sz * 2.2, CX, dropY - sz)
+        ctx.fillStyle = '#111'
+        ctx.fill()
+        ctx.restore()
+      }
+      if (splat > 0) {
+        ctx.save()
+        ctx.beginPath(); ctx.ellipse(CX, CY, lerp(0, 105, se), lerp(0, 18, se), 0, 0, Math.PI * 2)
+        ctx.fillStyle = '#0f0f0f'; ctx.fill()
+        ctx.beginPath(); ctx.ellipse(CX, CY, lerp(0, 80, se), lerp(0, 14, se), 0, 0, Math.PI * 2)
+        ctx.fillStyle = '#080808'; ctx.fill()
+        for (let i = 0; i < 4; i++) {
+          const rp = clamp(se - i * 0.08, 0, 1); if (rp <= 0) continue
+          ctx.beginPath(); ctx.ellipse(CX, CY, lerp(0, 95 - i * 14, rp), lerp(0, 16 - i * 2, rp), 0, 0, Math.PI * 2)
+          ctx.strokeStyle = `rgba(25,25,25,${0.6 - i * 0.1})`; ctx.lineWidth = 2 - i * 0.3; ctx.stroke()
+        }
+        ctx.restore()
+      }
+    }
+
+    function drawCircleSample(alpha: number) {
+      ctx.save(); ctx.globalAlpha = alpha
+      ctx.beginPath(); ctx.ellipse(CX, CY, 104, 18, 0, 0, Math.PI * 2); ctx.fillStyle = '#0c0c0c'; ctx.fill()
+      ctx.beginPath(); ctx.ellipse(CX, CY, 80, 14, 0, 0, Math.PI * 2); ctx.fillStyle = '#080808'; ctx.fill()
+      ctx.restore()
+    }
+
+    function drawScanLine(progress: number, sampleAlpha: number) {
+      if (progress <= 0) return
+      const p = easeInOut(clamp(progress, 0, 1))
+      const scanX = lerp(CX - 112, CX + 112, p)
+      ctx.save()
+      ctx.strokeStyle = RED; ctx.lineWidth = 2.5
+      ctx.beginPath(); ctx.moveTo(scanX, CY - 84); ctx.lineTo(scanX, CY + 84); ctx.stroke()
+      ctx.strokeStyle = 'rgba(228,27,19,0.2)'; ctx.lineWidth = 14
+      ctx.beginPath(); ctx.moveTo(scanX, CY - 84); ctx.lineTo(scanX, CY + 84); ctx.stroke()
+      ctx.restore()
+      for (let i = 0; i < 8; i++) {
+        const nx = CX + Math.cos(i / 8 * Math.PI * 2) * 72
+        const ny = CY + Math.sin(i / 8 * Math.PI * 2) * 13
+        const dist = Math.abs(nx - scanX)
+        const vis = clamp(1 - dist / 60, 0, 1) * clamp(p - i / 8 * 0.7, 0, 1)
+        if (vis <= 0) continue
+        ctx.save(); ctx.globalAlpha = vis * 0.7 * sampleAlpha
+        ctx.strokeStyle = RED; ctx.lineWidth = 1
+        ctx.beginPath(); ctx.arc(nx, ny, 4, 0, Math.PI * 2); ctx.stroke()
+        ctx.strokeStyle = 'rgba(255,255,255,0.3)'; ctx.lineWidth = 0.5
+        ctx.beginPath(); ctx.moveTo(nx, ny); ctx.lineTo(nx + 14, ny - 8); ctx.stroke()
+        ctx.beginPath(); ctx.moveTo(nx, ny); ctx.lineTo(CX, CY); ctx.stroke()
+        ctx.restore()
+      }
+      ctx.save(); ctx.globalAlpha = clamp(progress * 3, 0, 1) * sampleAlpha * 0.5
+      ctx.strokeStyle = RED; ctx.lineWidth = 1; ctx.setLineDash([6, 4])
+      ctx.beginPath(); ctx.moveTo(CX - 114, CY); ctx.lineTo(CX + 114, CY); ctx.stroke()
+      ctx.beginPath(); ctx.moveTo(CX, CY - 84); ctx.lineTo(CX, CY + 84); ctx.stroke()
+      ctx.setLineDash([])
+      ctx.strokeStyle = 'rgba(255,255,255,0.12)'; ctx.lineWidth = 0.5
+      ctx.beginPath(); ctx.arc(CX, CY, 90, 0, Math.PI * 2); ctx.stroke()
+      ctx.restore()
+    }
+
+    function drawHexagon(progress: number) {
+      if (progress <= 0) return
+      const p = easeOut(clamp(progress, 0, 1))
+      const r = lerp(0, 112, p)
+      ctx.save(); ctx.globalAlpha = p
+      ctx.beginPath()
+      for (let i = 0; i < 6; i++) {
+        const a = (i / 6) * Math.PI * 2 - Math.PI / 6
+        i === 0 ? ctx.moveTo(CX + Math.cos(a) * r, CY + Math.sin(a) * r * 0.2)
+          : ctx.lineTo(CX + Math.cos(a) * r, CY + Math.sin(a) * r * 0.2)
+      }
+      ctx.closePath(); ctx.strokeStyle = RED; ctx.lineWidth = 2.5; ctx.stroke()
+      ctx.beginPath()
+      for (let i = 0; i < 6; i++) {
+        const a = (i / 6) * Math.PI * 2 - Math.PI / 6; const rr = r - 8
+        i === 0 ? ctx.moveTo(CX + Math.cos(a) * rr, CY + Math.sin(a) * rr * 0.2)
+          : ctx.lineTo(CX + Math.cos(a) * rr, CY + Math.sin(a) * rr * 0.2)
+      }
+      ctx.closePath(); ctx.strokeStyle = 'rgba(228,27,19,0.2)'; ctx.lineWidth = 1; ctx.stroke()
+      ctx.restore()
+    }
+
+    function drawCheckmark(progress: number) {
+      if (progress <= 0) return
+      const p = easeOut(clamp(progress, 0, 1))
+      const sx = CX - 32, sy = CY + 6, mx = CX - 8, my = CY + 30, ex = CX + 40, ey = CY - 26
+      const seg1 = Math.hypot(mx - sx, my - sy)
+      const total = seg1 + Math.hypot(ex - mx, ey - my)
+      const drawn = p * total
+      ctx.save(); ctx.strokeStyle = WHITE; ctx.lineWidth = 5; ctx.lineCap = 'round'; ctx.lineJoin = 'round'
+      ctx.beginPath()
+      if (drawn <= seg1) {
+        const t2 = drawn / seg1; ctx.moveTo(sx, sy); ctx.lineTo(lerp(sx, mx, t2), lerp(sy, my, t2))
+      } else {
+        ctx.moveTo(sx, sy); ctx.lineTo(mx, my)
+        const t2 = (drawn - seg1) / (total - seg1); ctx.lineTo(lerp(mx, ex, t2), lerp(my, ey, t2))
+      }
+      ctx.stroke(); ctx.restore()
+    }
+
+    function drawIKOLogo(alpha: number) {
+      if (alpha <= 0) return
+      ctx.save(); ctx.globalAlpha = alpha
+      const s = 3.0
+      const ox = CX - 159 * s / 2
+      const oy = CY - 53 * s / 2 + 8
+      ctx.save(); ctx.translate(ox, oy); ctx.scale(s, s)
+
+      // Shield body — WHITE
+      ctx.fillStyle = WHITE
+      const shield = new Path2D()
+      shield.moveTo(25.97,26.85); shield.lineTo(25.89,25.50); shield.lineTo(24.91,26.43)
+      shield.bezierCurveTo(24.91,26.43,23.00,28.21,20.92,27.72)
+      shield.bezierCurveTo(19.38,27.37,18.07,25.88,17.00,23.32)
+      shield.bezierCurveTo(18.35,21.71,19.58,19.21,19.67,15.40)
+      shield.bezierCurveTo(19.66,14.94,19.62,14.47,19.56,14.02)
+      shield.bezierCurveTo(21.06,12.94,23.01,10.52,22.00,7.20)
+      shield.bezierCurveTo(21.74,6.46,21.34,5.79,20.82,5.21)
+      shield.bezierCurveTo(20.30,4.64,19.67,4.17,18.97,3.86)
+      shield.bezierCurveTo(18.24,3.56,17.46,3.42,16.68,3.46)
+      shield.bezierCurveTo(16.03,0.90,14.11,0.06,13.12,0)
+      shield.lineTo(13.05,0); shield.lineTo(12.98,0)
+      shield.bezierCurveTo(12.11,0.11,11.29,0.51,10.65,1.13)
+      shield.bezierCurveTo(10.02,1.76,9.60,2.58,9.46,3.46)
+      shield.bezierCurveTo(8.66,3.41,7.86,3.54,7.11,3.85)
+      shield.bezierCurveTo(4.34,5.13,3.03,7.64,4.08,11.18)
+      shield.bezierCurveTo(5.05,13.00,6.57,14.05,6.57,14.05)
+      shield.bezierCurveTo(6.46,15.40,6.46,20.05,9.13,23.31)
+      shield.bezierCurveTo(8.64,24.34,7.04,27.21,4.80,27.71)
+      shield.bezierCurveTo(3.63,27.97,2.40,27.51,1.13,26.35)
+      shield.lineTo(0.22,25.55); shield.lineTo(0.07,26.76)
+      shield.bezierCurveTo(-0.15,29.75,0.15,32.75,0.97,35.62)
+      shield.bezierCurveTo(2.21,40.27,5.24,47.01,12.68,52.72)
+      shield.lineTo(13.04,53); shield.lineTo(13.41,52.75)
+      shield.bezierCurveTo(15.95,50.87,18.20,48.61,20.07,46.05)
+      shield.bezierCurveTo(24.25,40.58,26.34,33.76,25.97,26.85)
+      ctx.fill(shield)
+
+      // Red parts
+      ctx.fillStyle = RED
+      const tongue = new Path2D()
+      tongue.moveTo(20.66,28.97)
+      tongue.bezierCurveTo(21.60,29.17,22.58,29.10,23.48,28.75)
+      tongue.bezierCurveTo(22.63,29.88,21.43,30.69,20.07,31.03)
+      tongue.bezierCurveTo(17.28,31.66,14.52,29.93,13.73,29.36)
+      tongue.lineTo(13.73,25.83)
+      tongue.bezierCurveTo(14.59,25.45,15.39,24.94,16.10,24.30)
+      tongue.bezierCurveTo(17.25,26.97,18.80,28.55,20.66,28.97)
+      ctx.fill(tongue)
+
+      const flame = new Path2D()
+      flame.moveTo(13.07,51.40)
+      flame.bezierCurveTo(2.83,43.29,1.37,33.15,1.27,28.91)
+      flame.bezierCurveTo(2.47,30.45,4.12,31.56,5.99,32.08)
+      flame.bezierCurveTo(8.22,32.63,10.59,32.08,13.03,30.46)
+      flame.bezierCurveTo(14.06,31.18,17.08,32.99,20.30,32.28)
+      flame.bezierCurveTo(22.11,31.83,23.70,30.72,24.75,29.16)
+      flame.bezierCurveTo(24.46,42.02,15.07,49.87,13.07,51.40)
+      ctx.fill(flame)
+
+      const topCap = new Path2D()
+      topCap.moveTo(18.45,5.01)
+      topCap.bezierCurveTo(20.27,5.78,21.36,7.29,20.81,10.31)
+      topCap.bezierCurveTo(20.55,11.20,20.03,11.99,19.31,12.58)
+      topCap.bezierCurveTo(18.65,9.59,16.86,6.97,14.32,5.30)
+      topCap.bezierCurveTo(15.93,4.63,17.31,4.53,18.45,5.01)
+      ctx.fill(topCap)
+
+      const topCentre = new Path2D()
+      topCentre.moveTo(13.07,1.25)
+      topCentre.bezierCurveTo(13.41,1.31,14.84,1.66,15.40,3.62)
+      topCentre.bezierCurveTo(14.57,3.81,13.77,4.11,13.01,4.50)
+      topCentre.bezierCurveTo(12.28,4.12,11.50,3.83,10.69,3.63)
+      topCentre.bezierCurveTo(10.78,3.03,11.07,2.47,11.49,2.04)
+      topCentre.bezierCurveTo(11.92,1.61,12.48,1.34,13.07,1.25)
+      ctx.fill(topCentre)
+
+      const leftArc = new Path2D()
+      leftArc.moveTo(5.26,7.57)
+      leftArc.bezierCurveTo(5.96,5.79,7.58,4.51,9.18,5.01)
+      leftArc.bezierCurveTo(6.04,7.05,7.52,12.63,6.80,12.63)
+      leftArc.bezierCurveTo(5.52,11.25,4.97,9.44,5.26,7.57)
+      ctx.fill(leftArc)
+
+      const sideFlap = new Path2D()
+      sideFlap.moveTo(5.05,28.95)
+      sideFlap.bezierCurveTo(7.57,28.38,9.29,25.68,10.03,24.28)
+      sideFlap.bezierCurveTo(10.74,24.92,11.54,25.44,12.41,25.82)
+      sideFlap.lineTo(12.41,29.35)
+      sideFlap.bezierCurveTo(10.25,30.81,8.19,31.33,6.29,30.84)
+      sideFlap.bezierCurveTo(5.03,30.49,3.88,29.81,2.97,28.86)
+      sideFlap.bezierCurveTo(3.64,29.06,4.36,29.09,5.05,28.95)
+      ctx.fill(sideFlap)
+
+      // Arrow marks inside shield
+      const arrows = [
+        [13.68,14.02,17.29,15.38,13.68,16.74],
+        [12.42,16.73,8.86,15.38,12.42,14.02],
+        [13.68,23.31,16.11,22.45,13.68,24.43],
+        [17.25,20.71,13.70,21.96,13.70,20.97,17.75,19.48],
+        [18.13,17.97,13.68,19.61,13.68,18.12,18.35,16.36],
+        [13.68,12.68,13.68,11.46,18.10,12.99,18.34,14.41],
+        [13.68,10.11,13.68,8.95,16.94,9.94,17.64,11.48],
+        [13.68,7.62,13.68,6.41,15.78,8.26],
+        [12.43,7.62,10.42,8.27,12.45,6.42],
+        [9.17,9.99,12.42,8.96,12.42,10.11,8.47,11.49],
+        [8.01,12.99,12.40,11.45,12.40,12.68,7.74,14.46],
+        [12.42,18.12,12.42,19.61,8.03,17.98,7.76,16.33],
+        [12.42,20.96,12.42,21.95,9.01,20.73,8.47,19.49],
+        [12.42,23.31,12.42,24.39,10.13,22.49],
+      ]
+      arrows.forEach(pts => {
+        const ap = new Path2D()
+        ap.moveTo(pts[0], pts[1])
+        for (let i = 2; i < pts.length; i += 2) ap.lineTo(pts[i], pts[i + 1])
+        ap.closePath(); ctx.fill(ap)
+      })
+
+      // I, K, O letterforms — all WHITE
+      ctx.fillStyle = WHITE
+
+      const letterI = new Path2D()
+      letterI.moveTo(34.99,1.00); letterI.lineTo(57.78,1.00); letterI.lineTo(45.49,41.36); letterI.lineTo(22.70,41.36); letterI.closePath()
+      ctx.fill(letterI)
+
+      const letterK = new Path2D()
+      letterK.moveTo(112.15,1.00); letterK.lineTo(89.61,1.00); letterK.lineTo(79.49,13.77)
+      letterK.lineTo(83.39,1.00); letterK.lineTo(60.59,1.00); letterK.lineTo(48.30,41.36)
+      letterK.lineTo(71.09,41.36); letterK.lineTo(75.11,28.18); letterK.lineTo(79.20,41.53)
+      letterK.lineTo(102.67,41.53); letterK.lineTo(96.27,21.44); letterK.closePath()
+      ctx.fill(letterK)
+
+      const letterO = new Path2D()
+      letterO.moveTo(111.04,38.24)
+      letterO.bezierCurveTo(106.16,34.98,103.15,29.66,103.15,24.13)
+      letterO.bezierCurveTo(103.15,18.19,105.25,12.74,109.93,8.54)
+      letterO.bezierCurveTo(115.40,3.59,123.81,1.08,133.02,1.08)
+      letterO.bezierCurveTo(148.86,1.08,159,7.52,159,19.64)
+      letterO.bezierCurveTo(159,25.29,158.76,29.69,152.35,35.39)
+      letterO.bezierCurveTo(146.73,40.42,138.41,42.69,129.06,42.69)
+      letterO.bezierCurveTo(121.65,42.69,115.72,41.34,111.04,38.24)
+      letterO.moveTo(126.13,21.95)
+      letterO.bezierCurveTo(125.86,26.29,127.47,29.30,130.25,29.51)
+      letterO.bezierCurveTo(133.37,29.71,135.98,25.81,136.29,20.90)
+      letterO.bezierCurveTo(136.55,16.73,134.77,13.77,132.15,13.60)
+      letterO.bezierCurveTo(129.00,13.37,126.45,17.03,126.13,21.95)
+      ctx.fill(letterO)
+
+      ctx.restore()
+      ctx.restore()
+    }
+
+    function render() {
+      ctx.clearRect(0, 0, W, H)
+      ctx.fillStyle = NAVY; ctx.fillRect(0, 0, W, H)
+      drawGrid()
+      const p = getPhase(tRef.current)
+      const pt = getPhaseT(tRef.current)
+      if (p === 0) {
+        drawDroplet(easeInOut(pt))
+        setLabel('Viscous flow…')
+      } else if (p === 1) {
+        drawCircleSample(1)
+        drawScanLine(pt, 1)
+        setLabel('Precision scan…')
+      } else if (p === 2) {
+        drawCircleSample(lerp(1, 0, clamp((pt - 0.5) * 4, 0, 1)))
+        drawHexagon(clamp(pt * 3, 0, 1))
+        drawScanLine(1, lerp(1, 0, clamp(pt * 4, 0, 1)))
+        drawCheckmark(clamp((pt - 0.35) / 0.65, 0, 1))
+        setLabel('QA approved')
+      } else if (p === 3) {
+        const fi = clamp((tRef.current - PHASE_T[3]) / 40, 0, 1)
+        drawHexagon(1)
+        drawCheckmark(lerp(1, 0, clamp(fi * 3, 0, 1)))
+        drawIKOLogo(easeOut(fi))
+        setLabel('Loading dashboard…')
+      }
+    }
+
+    function loop() {
+      tRef.current++
+      render()
+      if (tRef.current < PHASE_T[PHASE_T.length - 1] + 60) {
+        animRef.current = requestAnimationFrame(loop)
+      }
+    }
+
+    animRef.current = requestAnimationFrame(loop)
+    return () => { if (animRef.current) cancelAnimationFrame(animRef.current) }
+  }, [])
+
+  if (phase === 'gone') return null
+
   return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      width={width}
-      height={height}
-      viewBox="0 0 159 53"
-      fill="none"
-      className={className}
-      aria-label="IKO logo"
-      role="img"
-    >
-      <g id="IKO Logo">
-        <path d="M25.9666 26.8539L25.8886 25.5028L24.9132 26.4282C24.9132 26.4282 23.0014 28.205 20.9237 27.7249C19.3825 27.3686 18.0657 25.8838 16.9976 23.3202C18.3535 21.7117 19.5776 19.2075 19.6654 15.4016C19.6601 14.9378 19.6243 14.4748 19.5581 14.0159C21.0603 12.9419 23.0111 10.5169 21.9967 7.20095C21.7427 6.46354 21.3431 5.78648 20.8223 5.21121C20.3015 4.63595 19.6705 4.17458 18.968 3.85536C18.2433 3.55513 17.4622 3.4216 16.6806 3.46438C16.0319 0.900738 14.1104 0.0643384 13.1203 0H13.052H12.9837C12.1053 0.110026 11.2862 0.50783 10.6507 1.13305C10.0152 1.75827 9.598 2.57678 9.46245 3.46438C8.66015 3.41031 7.85624 3.54233 7.11168 3.85041C6.41025 4.16841 5.77972 4.62757 5.25829 5.20009C4.73685 5.77261 4.33535 6.44657 4.07811 7.18116C3.02953 10.5465 5.05353 12.9964 6.56544 14.0456C6.51179 14.4662 6.47278 14.9018 6.45815 15.3521C6.45815 15.6144 6.45815 20.0488 9.13081 23.3054C8.6431 24.3397 7.03852 27.2052 4.8048 27.7051C3.62941 27.9674 2.3955 27.5121 1.13232 26.354L0.215424 25.5473L0.0691106 26.7648C-0.150698 29.7487 0.154825 32.7485 0.971378 35.6237C2.20529 40.2659 5.23886 47.0066 12.6765 52.7229L13.0374 53L13.408 52.7476C15.9532 50.8725 18.2 48.6125 20.0702 46.0465C24.2458 40.5765 26.3391 33.7627 25.9666 26.8539Z" fill="white"/>
-        <path d="M20.6603 28.972C21.6015 29.1743 22.5803 29.097 23.4793 28.7493C22.6301 29.8817 21.4259 30.6865 20.0653 31.0308C17.2805 31.6594 14.52 29.9321 13.725 29.363V25.8343C14.5907 25.4545 15.391 24.9365 16.0953 24.3C17.2463 26.9726 18.7972 28.5464 20.6603 28.972Z" fill="#E41B13"/>
-        <path d="M13.6812 14.0158L17.2902 15.3768L13.6812 16.7378V14.0158Z" fill="#E41B13"/>
-        <path d="M12.4229 16.7329L8.85768 15.3768L12.4229 14.0208V16.7329Z" fill="#E41B13"/>
-        <path d="M13.6763 23.3102L16.1148 22.454C15.4433 23.2755 14.6135 23.9491 13.6763 24.4337V23.3102Z" fill="#E41B13"/>
-        <path d="M17.2463 20.7119L13.7007 21.9591V20.9693L17.7536 19.4846C17.6101 19.9041 17.4407 20.314 17.2463 20.7119Z" fill="#E41B13"/>
-        <path d="M18.1291 17.9701L13.6812 19.6082V18.1235L18.3486 16.3616C18.3058 16.9016 18.2325 17.4386 18.1291 17.9701Z" fill="#E41B13"/>
-        <path d="M13.6812 12.6796V11.4572L18.095 12.9963C18.2034 13.4629 18.2848 13.9355 18.3388 14.4118L13.6812 12.6796Z" fill="#E41B13"/>
-        <path d="M13.6812 10.106V8.95288L16.9391 9.9427C17.2113 10.4353 17.4461 10.9482 17.6414 11.4769L13.6812 10.106Z" fill="#E41B13"/>
-        <path d="M13.6812 7.61663V6.414C14.4651 6.92635 15.1729 7.54963 15.7832 8.26497L13.6812 7.61663Z" fill="#E41B13"/>
-        <path d="M12.4277 7.62164L10.4184 8.26503C11.0177 7.56593 11.7009 6.94576 12.4521 6.41901L12.4277 7.62164Z" fill="#E41B13"/>
-        <path d="M9.1747 9.99219L12.4229 8.95782V10.106L8.46751 11.4868C8.66594 10.9713 8.90234 10.4717 9.1747 9.99219Z" fill="#E41B13"/>
-        <path d="M8.00907 12.9963L12.3985 11.4522V12.6796L7.74083 14.4563C7.79845 13.9642 7.88806 13.4765 8.00907 12.9963Z" fill="#E41B13"/>
-        <path d="M12.4229 18.1236V19.6083L8.03345 17.9751C7.91311 17.4312 7.82194 16.881 7.76033 16.3271L12.4229 18.1236Z" fill="#E41B13"/>
-        <path d="M12.4229 20.9643V21.9542L9.00888 20.7268C8.80483 20.3254 8.62407 19.9123 8.46751 19.4895L12.4229 20.9643Z" fill="#E41B13"/>
-        <path d="M12.4229 23.3103V24.3892C11.5412 23.9155 10.7606 23.2696 10.1257 22.4887L12.4229 23.3103Z" fill="#E41B13"/>
-        <path d="M18.451 5.00851C18.9852 5.25847 19.4653 5.61325 19.8638 6.05239C20.2622 6.49154 20.5711 7.00636 20.7725 7.56719C21.0601 8.45468 21.074 9.41006 20.8126 10.3058C20.5512 11.2016 20.0268 11.9952 19.3094 12.5806C18.6458 9.58642 16.8553 6.9739 14.3201 5.3005C15.9295 4.63237 17.3146 4.53339 18.451 5.00851Z" fill="#E41B13"/>
-        <path d="M13.0715 1.25214C13.408 1.30658 14.8419 1.65796 15.4028 3.61781C14.5744 3.81358 13.7721 4.10933 13.013 4.49875C12.2755 4.11825 11.4962 3.82754 10.6915 3.63266C10.784 3.02925 11.0653 2.47203 11.4939 2.04336C11.9225 1.61468 12.4756 1.33728 13.0715 1.25214Z" fill="#E41B13"/>
-        <path d="M5.25835 7.56716C5.4598 7.00633 5.76864 6.4915 6.16708 6.05236C6.56552 5.61321 7.04567 5.25843 7.57986 5.00847C8.73086 4.51356 10.1355 4.63729 11.7742 5.32522C9.28406 7.0534 7.51208 9.65539 6.79952 12.6301C6.0604 12.0497 5.51577 11.252 5.23995 10.3459C4.96413 9.43983 4.97055 8.46943 5.25835 7.56716Z" fill="#E41B13"/>
-        <path d="M5.05352 28.9474C7.57012 28.3832 9.29174 25.6809 10.0282 24.2754C10.7367 24.9161 11.5419 25.4374 12.4131 25.8195V29.3532C10.2525 30.8082 8.19439 31.3328 6.28743 30.8379C5.02528 30.4925 3.87803 29.8087 2.96611 28.8583C3.64389 29.063 4.36119 29.0936 5.05352 28.9474Z" fill="#E41B13"/>
-        <path d="M13.0715 51.3965C2.82955 43.2948 1.36642 33.1491 1.26888 28.9127C2.47059 30.4511 4.12436 31.5606 5.98993 32.0801C8.22366 32.6344 10.5939 32.0801 13.0325 30.4617C14.0616 31.1793 17.0805 32.9957 20.2994 32.278C22.1118 31.8345 23.6971 30.7233 24.7474 29.1601C24.4645 42.0179 15.0663 49.8721 13.0715 51.3965Z" fill="#E41B13"/>
-        <path d="M111.038 38.2417C106.161 34.9753 103.152 29.6649 103.152 24.1268C103.152 18.1879 105.249 12.7439 109.926 8.53716C115.398 3.58805 123.807 1.0838 133.015 1.0838C148.86 1.0838 159 7.51764 159 19.643C159 25.2899 158.761 29.6896 152.348 35.3861C146.734 40.4243 138.414 42.686 129.059 42.686C121.646 42.686 115.716 41.3448 111.038 38.2417ZM126.133 21.9542C125.855 26.2896 127.469 29.2987 130.254 29.5065C133.371 29.7094 135.975 25.8145 136.287 20.9C136.551 16.7329 134.77 13.7733 132.151 13.6001C128.996 13.3675 126.445 17.0348 126.133 21.9542Z" fill="white"/>
-        <path d="M34.9893 0.999756H57.7801L45.4898 41.3597H22.699L34.9893 0.999756Z" fill="white"/>
-        <path d="M112.145 0.999756H89.6131L79.4931 13.7685L83.385 0.999756H60.5942L48.3039 41.3597H71.0947L75.1085 28.1753L79.2005 41.533H102.674L96.2704 21.4396L112.145 0.999756Z" fill="white"/>
-      </g>
-    </svg>
+    <div style={{
+      position: 'fixed',
+      top: 0, left: 0, right: 0, bottom: 0,
+      width: '100vw', height: '100vh',
+      background: '#1C2B4B',
+      zIndex: 99999,
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: '1.5rem',
+      opacity: phase === 'fading' ? 0 : 1,
+      transition: 'opacity 0.6s ease',
+    }}>
+      <canvas
+        ref={canvasRef}
+        width={480}
+        height={480}
+        style={{ width: 240, height: 240 }}
+      />
+      <div style={{ textAlign: 'center' }}>
+        <div style={{
+          fontSize: '0.6875rem',
+          fontWeight: 700,
+          letterSpacing: '0.14em',
+          textTransform: 'uppercase',
+          color: 'rgba(255,255,255,0.3)',
+          marginBottom: 6,
+          fontFamily: 'Inter, sans-serif',
+        }}>
+          Grangemill · QA System
+        </div>
+        <div style={{
+          fontSize: '0.9375rem',
+          fontWeight: 500,
+          color: 'rgba(255,255,255,0.6)',
+          fontFamily: 'Inter, sans-serif',
+          minWidth: 180,
+        }}>
+          {label}
+        </div>
+      </div>
+    </div>
   )
 }
