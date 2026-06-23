@@ -2,8 +2,8 @@
 
 import type { Question } from '@/types'
 
-// Maps each mean field to the three source fields it averages
-const CALCULATED_MEANS: Record<string, [string, string, string]> = {
+// Maps each calculated field to its source fields
+const CALCULATED_MEANS: Record<string, [string, string] | [string, string, string]> = {
   bit_pen_mean:          ['bit_pen_1',         'bit_pen_2',         'bit_pen_3'],
   bb_pen_mean:           ['bb_pen_1',           'bb_pen_2',           'bb_pen_3'],
   bb_corr_pen_mean:      ['bb_corr_pen_1',      'bb_corr_pen_2',      'bb_corr_pen_3'],
@@ -11,9 +11,14 @@ const CALCULATED_MEANS: Record<string, [string, string, string]> = {
   ma16_cone_pen_mean:    ['ma16_cone_pen_1',    'ma16_cone_pen_2',    'ma16_cone_pen_3'],
   fp_bit_pen_mean:       ['fp_bit_pen_1',       'fp_bit_pen_2',       'fp_bit_pen_3'],
   fp_bit_cone_pen_mean:  ['fp_bit_cone_pen_1',  'fp_bit_cone_pen_2',  'fp_bit_cone_pen_3'],
+  c1_mean_binder:        ['c1_a_binder',        'c1_1_binder'],
+  c2_mean_binder:        ['c2_a_binder',        'c2_1_binder'],
 }
 
-function calcMean(sources: [string, string, string], allAnswers: Record<string, string | string[]>): string {
+function calcMean(
+  sources: [string, string] | [string, string, string],
+  allAnswers: Record<string, string | string[]>
+): string {
   const vals = sources.map((k) => parseFloat(String(allAnswers[k] ?? '')))
   const valid = vals.filter((v) => !isNaN(v))
   if (valid.length === 0) return ''
@@ -43,12 +48,11 @@ export default function QuestionField({ question, value, onChange, error, allAns
     if (allAnswers['bb_corrected'] !== 'true') return null
   }
 
-  // ── Calculated mean field ──────────────────────────────────────────────────
+  // ── Calculated field ───────────────────────────────────────────────────────
   if (CALCULATED_MEANS[field_key]) {
     const sources = CALCULATED_MEANS[field_key]
     const calculated = calcMean(sources, allAnswers)
 
-    // Keep the answer state in sync with the calculated value
     if (calculated !== String(value ?? '')) {
       setTimeout(() => onChange(calculated), 0)
     }
@@ -183,7 +187,9 @@ export default function QuestionField({ question, value, onChange, error, allAns
             </span>
           )}
           {error && <FieldError msg={error} />}
-          {help_text && <span style={{ fontSize: '0.8125rem', color: 'var(--c-text-3)' }}>{help_text}</span>}
+          {help_text && (
+            <span style={{ fontSize: '0.8125rem', color: 'var(--c-text-3)' }}>{help_text}</span>
+          )}
         </div>
       )
 
@@ -275,7 +281,9 @@ export default function QuestionField({ question, value, onChange, error, allAns
     case 'text':
     default:
       return (
-        <div className="form-group" style={{ gridColumn: strValue && String(strValue).length > 60 ? 'span 2' : undefined }}>
+        <div className="form-group" style={{
+          gridColumn: strValue && String(strValue).length > 60 ? 'span 2' : undefined,
+        }}>
           {labelEl}
           <textarea
             id={field_key}
