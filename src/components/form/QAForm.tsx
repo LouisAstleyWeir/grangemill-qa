@@ -27,9 +27,13 @@ export default function QAForm({ sections, branchRules, categories }: Props) {
   const visibleSectionIds = useCallback((): Set<string> => {
     const visible = new Set<string>()
     for (const rule of branchRules) {
-      const catMatch  = !rule.category_code  || rule.category_code  === categoryCode
-      const matMatch  = !rule.material_code  || rule.material_code  === materialCode
-      const prodMatch = !rule.product_code   || rule.product_code   === productCode
+      const catMatch = !rule.category_code || rule.category_code === categoryCode
+      const matMatch = !rule.material_code || rule.material_code === materialCode
+
+      // If rule requires a specific product, only match when a product is actually selected
+      const prodMatch = !rule.product_code
+        ? true
+        : productCode !== '' && rule.product_code === productCode
 
       let condMatch = true
       if (rule.condition_field && rule.condition_value) {
@@ -58,7 +62,6 @@ export default function QAForm({ sections, branchRules, categories }: Props) {
   const validate = (): boolean => {
     const newErrors: Record<string, string> = {}
 
-    // Header fields always required
     const headerRequired: Record<string, string> = {
       date_of_sample: 'Date of sample',
       time_taken: 'Time taken',
@@ -74,14 +77,12 @@ export default function QAForm({ sections, branchRules, categories }: Props) {
     if (!categoryId)     newErrors['_category'] = 'Please select a category'
     if (!materialTypeId) newErrors['_material'] = 'Please select a material type'
 
-    // Validate visible section questions
     for (const section of visibleSections) {
       if (section.code === 'header') continue
       for (const q of section.questions ?? []) {
         if (!q.is_required) continue
         if (q.field_key === 'ticket_upload') continue
 
-        // Skip conditionally hidden sub-questions
         if (q.field_key.startsWith('bit_pen_') && q.field_key !== 'bit_pen_required') {
           if (answers['bit_pen_required'] === 'false') continue
         }
@@ -92,7 +93,6 @@ export default function QAForm({ sections, branchRules, categories }: Props) {
           if (answers['bb_corrected'] !== 'true') continue
         }
 
-        // Skip header field keys already validated above
         if (Object.keys(headerRequired).includes(q.field_key)) continue
 
         const val = answers[q.field_key]
