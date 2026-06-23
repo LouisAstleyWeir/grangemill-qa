@@ -37,6 +37,20 @@ const AGG_SIEVE_FIELDS: Record<string, string> = {
   agg10_ret_2000: 'agg10_total_mass',
 }
 
+// ── Total coarse aggregate sum fields ─────────────────────────────────────────
+const AGG_TOTAL_COARSE: Record<string, string[]> = {
+  agg6_total_coarse: [
+    'agg6_ret_0075', 'agg6_ret_0212', 'agg6_ret_0600',
+    'agg6_ret_100',  'agg6_ret_200',  'agg6_ret_400',
+    'agg6_ret_630',  'agg6_ret_1000', 'agg6_ret_1400',
+  ],
+  agg10_total_coarse: [
+    'agg10_ret_0075', 'agg10_ret_0600', 'agg10_ret_100',
+    'agg10_ret_200',  'agg10_ret_400',  'agg10_ret_630',
+    'agg10_ret_1000', 'agg10_ret_1400', 'agg10_ret_2000',
+  ],
+}
+
 // ── % Coarse aggregate summary fields ────────────────────────────────────────
 const AGG_PCT_COARSE: Record<string, { fields: string[]; totalKey: string }> = {
   agg6_pct_coarse: {
@@ -76,6 +90,66 @@ function calcPct(retained: string, totalMassKey: string, allAnswers: Record<stri
   return parseFloat(((ret / total) * 100).toFixed(1)).toString()
 }
 
+function calcSum(fields: string[], allAnswers: Record<string, string | string[]>): string {
+  const vals = fields.map((k) => parseFloat(String(allAnswers[k] ?? '')))
+  const valid = vals.filter((v) => !isNaN(v))
+  if (valid.length === 0) return ''
+  return parseFloat(valid.reduce((a, b) => a + b, 0).toFixed(2)).toString()
+}
+
+// ── Shared calculated display box ─────────────────────────────────────────────
+function CalcDisplay({
+  value,
+  emptyText,
+  tag,
+  large = false,
+  accent = false,
+  outOfSpec = false,
+  suffix = '',
+}: {
+  value: string
+  emptyText: string
+  tag: string
+  large?: boolean
+  accent?: boolean
+  outOfSpec?: boolean
+}) {
+  return (
+    <div style={{
+      padding: large ? '0.75rem 1rem' : '0.5rem 0.75rem',
+      background: value
+        ? accent ? 'var(--c-accent-light)' : 'var(--c-slate-light)'
+        : 'var(--c-surface-2)',
+      border: `1px solid ${outOfSpec ? 'var(--c-warn)' : value && accent ? 'var(--c-accent)' : 'var(--c-border)'}`,
+      borderRadius: 'var(--radius-md)',
+      fontFamily: 'var(--font-mono)',
+      fontSize: large ? '1.125rem' : '0.9375rem',
+      color: value
+        ? accent ? 'var(--c-accent-dark)' : 'var(--c-slate)'
+        : 'var(--c-text-3)',
+      fontWeight: value ? (large ? 700 : 600) : 400,
+      minHeight: large ? '2.75rem' : '2.375rem',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+    }}>
+      <span>{value ? `${value}${suffix}` : emptyText}</span>
+      {value && (
+        <span style={{
+          fontSize: '0.6875rem',
+          fontFamily: 'var(--font-sans)',
+          fontWeight: 500,
+          letterSpacing: '0.05em',
+          textTransform: 'uppercase',
+          color: accent ? 'var(--c-accent)' : 'var(--c-text-3)',
+        }}>
+          {tag}
+        </span>
+      )}
+    </div>
+  )
+}
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface Props {
   question: Question
@@ -102,12 +176,8 @@ export default function QuestionField({ question, value, onChange, error, allAns
 
   // ── Calculated mean field ─────────────────────────────────────────────────
   if (CALCULATED_MEANS[field_key]) {
-    const sources = CALCULATED_MEANS[field_key]
-    const calculated = calcMean(sources, allAnswers)
-
-    if (calculated !== String(value ?? '')) {
-      setTimeout(() => onChange(calculated), 0)
-    }
+    const calculated = calcMean(CALCULATED_MEANS[field_key], allAnswers)
+    if (calculated !== String(value ?? '')) setTimeout(() => onChange(calculated), 0)
 
     const hasSpecLimit = spec_min !== null || spec_max !== null
     const numVal = parseFloat(calculated)
@@ -126,60 +196,16 @@ export default function QuestionField({ question, value, onChange, error, allAns
             </span>
           )}
         </label>
-        <div style={{
-          padding: '0.5rem 0.75rem',
-          background: calculated ? 'var(--c-slate-light)' : 'var(--c-surface-2)',
-          border: `1px solid ${outOfSpec ? 'var(--c-warn)' : 'var(--c-border)'}`,
-          borderRadius: 'var(--radius-md)',
-          fontFamily: 'var(--font-mono)',
-          fontSize: '0.9375rem',
-          color: calculated ? 'var(--c-slate)' : 'var(--c-text-3)',
-          fontWeight: calculated ? 600 : 400,
-          minHeight: '2.375rem',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-        }}>
-          <span>{calculated || 'Auto-calculated'}</span>
-          {calculated && (
-            <span style={{
-              fontSize: '0.6875rem',
-              fontFamily: 'var(--font-sans)',
-              fontWeight: 500,
-              letterSpacing: '0.05em',
-              textTransform: 'uppercase',
-              color: 'var(--c-text-3)',
-            }}>
-              avg
-            </span>
-          )}
-        </div>
-        {outOfSpec && (
-          <span style={{ color: 'var(--c-warn)', fontSize: '0.8125rem' }}>
-            ⚠ Outside specification limit
-          </span>
-        )}
+        <CalcDisplay value={calculated} emptyText="Auto-calculated" tag="avg" outOfSpec={outOfSpec} />
+        {outOfSpec && <span style={{ color: 'var(--c-warn)', fontSize: '0.8125rem' }}>⚠ Outside specification limit</span>}
       </div>
     )
   }
 
-  // ── % Coarse aggregate calculated field ───────────────────────────────────
-  if (AGG_PCT_COARSE[field_key]) {
-    const { fields, totalKey } = AGG_PCT_COARSE[field_key]
-    const total = parseFloat(String(allAnswers[totalKey] ?? ''))
-
-    const sumRetained = fields.reduce((acc, k) => {
-      const v = parseFloat(String(allAnswers[k] ?? ''))
-      return acc + (isNaN(v) ? 0 : v)
-    }, 0)
-
-    const calculated = !isNaN(total) && total > 0
-      ? parseFloat(((sumRetained / total) * 100).toFixed(1)).toString()
-      : ''
-
-    if (calculated !== String(value ?? '')) {
-      setTimeout(() => onChange(calculated), 0)
-    }
+  // ── Total coarse aggregate sum ────────────────────────────────────────────
+  if (AGG_TOTAL_COARSE[field_key]) {
+    const calculated = calcSum(AGG_TOTAL_COARSE[field_key], allAnswers)
+    if (calculated !== String(value ?? '')) setTimeout(() => onChange(calculated), 0)
 
     const hasSpecLimit = spec_min !== null || spec_max !== null
     const numVal = parseFloat(calculated)
@@ -198,39 +224,60 @@ export default function QuestionField({ question, value, onChange, error, allAns
             </span>
           )}
         </label>
-        <div style={{
-          padding: '0.75rem 1rem',
-          background: calculated ? 'var(--c-accent-light)' : 'var(--c-surface-2)',
-          border: `1px solid ${outOfSpec ? 'var(--c-warn)' : calculated ? 'var(--c-accent)' : 'var(--c-border)'}`,
-          borderRadius: 'var(--radius-md)',
-          fontFamily: 'var(--font-mono)',
-          fontSize: '1.125rem',
-          color: calculated ? 'var(--c-accent-dark)' : 'var(--c-text-3)',
-          fontWeight: calculated ? 700 : 400,
-          minHeight: '2.75rem',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-        }}>
-          <span>{calculated ? `${calculated}%` : 'Calculated from sieve weights above'}</span>
-          {calculated && (
-            <span style={{
-              fontSize: '0.6875rem',
-              fontFamily: 'var(--font-sans)',
-              fontWeight: 500,
-              letterSpacing: '0.05em',
-              textTransform: 'uppercase',
-              color: 'var(--c-accent)',
-            }}>
-              % coarse
+        <CalcDisplay
+          value={calculated}
+          emptyText="Sum of retained weights above"
+          tag="total g"
+          large
+          outOfSpec={outOfSpec}
+          suffix="g"
+        />
+        {outOfSpec && <span style={{ color: 'var(--c-warn)', fontSize: '0.8125rem' }}>⚠ Outside specification limit</span>}
+      </div>
+    )
+  }
+
+  // ── % Coarse aggregate ────────────────────────────────────────────────────
+  if (AGG_PCT_COARSE[field_key]) {
+    const { fields, totalKey } = AGG_PCT_COARSE[field_key]
+    const total = parseFloat(String(allAnswers[totalKey] ?? ''))
+    const sumRetained = fields.reduce((acc, k) => {
+      const v = parseFloat(String(allAnswers[k] ?? ''))
+      return acc + (isNaN(v) ? 0 : v)
+    }, 0)
+    const calculated = !isNaN(total) && total > 0
+      ? parseFloat(((sumRetained / total) * 100).toFixed(1)).toString()
+      : ''
+
+    if (calculated !== String(value ?? '')) setTimeout(() => onChange(calculated), 0)
+
+    const hasSpecLimit = spec_min !== null || spec_max !== null
+    const numVal = parseFloat(calculated)
+    const outOfSpec = hasSpecLimit && !isNaN(numVal) && (
+      (spec_min !== null && numVal < spec_min) ||
+      (spec_max !== null && numVal > spec_max)
+    )
+
+    return (
+      <div className="form-group" style={{ gridColumn: 'span 2' }}>
+        <label>
+          {label}
+          {hasSpecLimit && (
+            <span style={{ fontWeight: 400, color: 'var(--c-text-3)', marginLeft: 6 }}>
+              ({spec_min !== null ? `min ${spec_min}` : ''}{spec_min !== null && spec_max !== null ? ', ' : ''}{spec_max !== null ? `max ${spec_max}` : ''})
             </span>
           )}
-        </div>
-        {outOfSpec && (
-          <span style={{ color: 'var(--c-warn)', fontSize: '0.8125rem' }}>
-            ⚠ Outside specification limit
-          </span>
-        )}
+        </label>
+        <CalcDisplay
+          value={calculated}
+          emptyText="Calculated from sieve weights above"
+          tag="% coarse"
+          large
+          accent
+          outOfSpec={outOfSpec}
+          suffix="%"
+        />
+        {outOfSpec && <span style={{ color: 'var(--c-warn)', fontSize: '0.8125rem' }}>⚠ Outside specification limit</span>}
       </div>
     )
   }
@@ -274,41 +321,15 @@ export default function QuestionField({ question, value, onChange, error, allAns
             <div style={{ fontSize: '0.75rem', color: 'var(--c-text-3)', marginBottom: 4 }}>
               % of total mass
             </div>
-            <div style={{
-              padding: '0.5rem 0.75rem',
-              background: pct ? 'var(--c-slate-light)' : 'var(--c-surface-2)',
-              border: '1px solid var(--c-border)',
-              borderRadius: 'var(--radius-md)',
-              fontFamily: 'var(--font-mono)',
-              fontSize: '0.9375rem',
-              color: pct ? 'var(--c-slate)' : 'var(--c-text-3)',
-              fontWeight: pct ? 600 : 400,
-              minHeight: '2.375rem',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-            }}>
-              <span>{pct ? `${pct}%` : totalMassSet ? 'Enter weight' : 'Enter total mass first'}</span>
-              {pct && (
-                <span style={{
-                  fontSize: '0.6875rem',
-                  fontFamily: 'var(--font-sans)',
-                  fontWeight: 500,
-                  letterSpacing: '0.05em',
-                  textTransform: 'uppercase',
-                  color: 'var(--c-text-3)',
-                }}>
-                  calc
-                </span>
-              )}
-            </div>
+            <CalcDisplay
+              value={pct}
+              emptyText={totalMassSet ? 'Enter weight' : 'Enter total mass first'}
+              tag="calc"
+              suffix="%"
+            />
           </div>
         </div>
-        {outOfSpec && (
-          <span style={{ color: 'var(--c-warn)', fontSize: '0.8125rem' }}>
-            ⚠ Outside specification limit
-          </span>
-        )}
+        {outOfSpec && <span style={{ color: 'var(--c-warn)', fontSize: '0.8125rem' }}>⚠ Outside specification limit</span>}
         {error && <FieldError msg={error} />}
       </div>
     )
