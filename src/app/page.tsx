@@ -1,6 +1,7 @@
 // @ts-nocheck
 import Link from 'next/link'
 import { supabaseAdmin } from '@/lib/supabase'
+import DashboardShell from '@/components/ui/DashboardShell'
 
 export const dynamic = 'force-dynamic'
 
@@ -33,7 +34,7 @@ export default async function DashboardPage() {
     : 100
 
   return (
-    <>
+    <DashboardShell>
       <div className="page-header">
         <div className="page-header-text">
           <h1>Dashboard</h1>
@@ -152,6 +153,6 @@ export default async function DashboardPage() {
           </div>
         </div>
       </div>
-    </>
+    </DashboardShell>
   )
 }
