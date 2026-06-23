@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import IKOLogo from './IKOLogo'
 
 const links = [
   { href: '/',            label: 'Dashboard',      icon: '▦' },
@@ -17,8 +18,8 @@ export default function Sidebar() {
   return (
     <nav className="sidebar">
       <div className="sidebar-logo">
-        <div className="iko-wordmark">
-          <span className="iko-letters">IK<span>O</span></span>
+        <div style={{ marginBottom: '10px' }}>
+          <IKOLogo width={90} height={30} />
         </div>
         <span className="site-name">Grangemill</span>
         <span className="site-sub">QA &amp; Sample Registration</span>
