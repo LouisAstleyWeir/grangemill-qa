@@ -1,18 +1,27 @@
 // @ts-nocheck
-import { getExceptions } from '@/lib/queries'
+import { supabaseAdmin } from '@/lib/supabase'
 import ResolveButton from '@/components/dashboard/ResolveButton'
 
-export default async function ExceptionsPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ resolved?: string; severity?: string }>
-}) {
+export const dynamic = 'force-dynamic'
+
+export default async function ExceptionsPage({ searchParams }) {
   const params = await searchParams
-  const showResolved = params.resolved === 'true'
-  const exceptions = await getExceptions({
-    resolved: showResolved ? undefined : false,
-    severity: params.severity,
-  })
+  const showResolved = params?.resolved === 'true'
+
+  let query = supabaseAdmin
+    .from('exceptions')
+    .select(`
+      *,
+      questions ( label ),
+      submissions ( unique_id, date_of_sample )
+    `)
+    .order('created_at', { ascending: false })
+    .limit(500)
+
+  if (!showResolved) query = query.eq('resolved', false)
+  if (params?.severity) query = query.eq('severity', params.severity)
+
+  const { data: exceptions } = await query
 
   const counts = {
     high:   (exceptions ?? []).filter((e) => e.severity === 'high').length,
@@ -29,7 +38,6 @@ export default async function ExceptionsPage({
         </div>
       </div>
 
-      {/* Summary badges */}
       <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem', flexWrap: 'wrap' }}>
         <div className="stat-card" style={{ minWidth: 140 }}>
           <div className="stat-label">High severity</div>
@@ -45,11 +53,10 @@ export default async function ExceptionsPage({
         </div>
       </div>
 
-      {/* Filters */}
       <form method="GET" style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem', flexWrap: 'wrap' }}>
         <div className="form-group" style={{ minWidth: 140 }}>
           <label>Severity</label>
-          <select name="severity" defaultValue={params.severity}>
+          <select name="severity" defaultValue={params?.severity}>
             <option value="">All severities</option>
             <option value="high">High</option>
             <option value="medium">Medium</option>
@@ -58,7 +65,7 @@ export default async function ExceptionsPage({
         </div>
         <div className="form-group" style={{ minWidth: 160 }}>
           <label>Show resolved</label>
-          <select name="resolved" defaultValue={params.resolved}>
+          <select name="resolved" defaultValue={params?.resolved}>
             <option value="">Unresolved only</option>
             <option value="true">Include resolved</option>
           </select>
@@ -88,14 +95,14 @@ export default async function ExceptionsPage({
             <tbody>
               {(exceptions ?? []).map((exc) => (
                 <tr key={exc.id}>
-                  <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8125rem', color: 'var(--c-accent-dark)' }}>
-                    {(exc.submissions as { unique_id: string } | null)?.unique_id ?? '—'}
+                  <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8125rem', color: 'var(--c-accent)' }}>
+                    {exc.submissions?.unique_id ?? '—'}
                   </td>
                   <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8125rem' }}>
-                    {(exc.submissions as { date_of_sample: string } | null)?.date_of_sample ?? '—'}
+                    {exc.submissions?.date_of_sample ?? '—'}
                   </td>
                   <td style={{ fontSize: '0.875rem' }}>
-                    {(exc.questions as { label: string } | null)?.label ?? exc.field_key}
+                    {exc.questions?.label ?? exc.field_key}
                   </td>
                   <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.875rem' }}>
                     {exc.answer_value ?? '—'}
@@ -109,28 +116,25 @@ export default async function ExceptionsPage({
                   </td>
                   <td>
                     <span className={`badge ${exc.trigger_type === 'out_of_spec' ? 'badge-warn' : 'badge-neutral'}`}>
-                      {exc.trigger_type === 'out_of_spec' ? 'Out of spec' : 'Manual flag'}
+                      {exc.trigger_type === 'out_of_spec' ? 'Out of spec' : 'Manual'}
                     </span>
                   </td>
                   <td>
                     <span className={`badge ${
-                      exc.severity === 'high' ? 'badge-danger' :
-                      exc.severity === 'medium' ? 'badge-warn' : 'badge-neutral'
+                      exc.severity === 'high'   ? 'badge-danger' :
+                      exc.severity === 'medium' ? 'badge-warn'   : 'badge-neutral'
                     }`}>
                       {exc.severity}
                     </span>
                   </td>
                   <td>
-                    {exc.resolved ? (
-                      <span className="badge badge-ok">Resolved</span>
-                    ) : (
-                      <span className="badge badge-danger">Open</span>
-                    )}
+                    {exc.resolved
+                      ? <span className="badge badge-ok">Resolved</span>
+                      : <span className="badge badge-danger">Open</span>
+                    }
                   </td>
                   <td>
-                    {!exc.resolved && (
-                      <ResolveButton exceptionId={exc.id} />
-                    )}
+                    {!exc.resolved && <ResolveButton exceptionId={exc.id} />}
                   </td>
                 </tr>
               ))}
