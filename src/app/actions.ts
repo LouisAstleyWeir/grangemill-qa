@@ -1,6 +1,7 @@
 // @ts-nocheck
 'use server'
 
+import { revalidatePath } from 'next/cache'
 import { supabaseAdmin } from '@/lib/supabase'
 
 export interface SubmitFormData {
@@ -32,7 +33,6 @@ export interface SubmitResult {
 
 export async function submitQAForm(data: SubmitFormData): Promise<SubmitResult> {
   try {
-    // 1. Insert submission
     const { data: submission, error: subError } = await supabaseAdmin
       .from('submissions')
       .insert(data.submission)
@@ -46,7 +46,6 @@ export async function submitQAForm(data: SubmitFormData): Promise<SubmitResult> 
 
     const submissionId = submission.id
 
-    // 2. Insert all responses
     const responsesWithId = data.responses
       .filter((r) => r.answer_value !== null && r.answer_value !== '')
       .map((r) => ({
@@ -69,7 +68,6 @@ export async function submitQAForm(data: SubmitFormData): Promise<SubmitResult> 
       }
     }
 
-    // 3. Auto-raise out-of-spec exceptions
     const { error: excError } = await supabaseAdmin.rpc(
       'raise_out_of_spec_exceptions',
       { p_submission_id: submissionId }
@@ -78,6 +76,11 @@ export async function submitQAForm(data: SubmitFormData): Promise<SubmitResult> 
     if (excError) {
       console.error('Exception detection error:', excError)
     }
+
+    revalidatePath('/')
+    revalidatePath('/submissions')
+    revalidatePath('/exceptions')
+    revalidatePath('/reports')
 
     return { success: true, submissionId }
   } catch (err) {
@@ -102,6 +105,10 @@ export async function resolveException(
     .eq('id', exceptionId)
 
   if (error) return { success: false, error: error.message }
+
+  revalidatePath('/')
+  revalidatePath('/exceptions')
+
   return { success: true }
 }
 
