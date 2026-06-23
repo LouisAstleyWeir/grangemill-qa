@@ -71,6 +71,16 @@ const AGG_PCT_COARSE: Record<string, { fields: string[]; totalKey: string }> = {
   },
 }
 
+// ── Custom formula fields ─────────────────────────────────────────────────────
+// c1_mass_aggregate = total_mass - ((total_mass / 100) * soluble_binder_content)
+function calcC1MassAggregate(allAnswers: Record<string, string | string[]>): string {
+  const totalMass     = parseFloat(String(allAnswers['c1_total_mass']     ?? ''))
+  const solubleBinder = parseFloat(String(allAnswers['c1_soluble_binder'] ?? ''))
+  if (isNaN(totalMass) || isNaN(solubleBinder)) return ''
+  const result = totalMass - ((totalMass / 100) * solubleBinder)
+  return parseFloat(result.toFixed(2)).toString()
+}
+
 // ── Helper functions ──────────────────────────────────────────────────────────
 function calcMean(
   sources: [string, string] | [string, string, string],
@@ -99,13 +109,7 @@ function calcSum(fields: string[], allAnswers: Record<string, string | string[]>
 
 // ── Shared calculated display box ─────────────────────────────────────────────
 function CalcDisplay({
-  value,
-  emptyText,
-  tag,
-  large = false,
-  accent = false,
-  outOfSpec = false,
-  suffix = '',
+  value, emptyText, tag, large = false, accent = false, outOfSpec = false, suffix = '',
 }: {
   value: string
   emptyText: string
@@ -113,6 +117,7 @@ function CalcDisplay({
   large?: boolean
   accent?: boolean
   outOfSpec?: boolean
+  suffix?: string
 }) {
   return (
     <div style={{
@@ -197,6 +202,41 @@ export default function QuestionField({ question, value, onChange, error, allAns
           )}
         </label>
         <CalcDisplay value={calculated} emptyText="Auto-calculated" tag="avg" outOfSpec={outOfSpec} />
+        {outOfSpec && <span style={{ color: 'var(--c-warn)', fontSize: '0.8125rem' }}>⚠ Outside specification limit</span>}
+      </div>
+    )
+  }
+
+  // ── c1 mass aggregate ─────────────────────────────────────────────────────
+  if (field_key === 'c1_mass_aggregate') {
+    const calculated = calcC1MassAggregate(allAnswers)
+    if (calculated !== String(value ?? '')) setTimeout(() => onChange(calculated), 0)
+
+    const hasSpecLimit = spec_min !== null || spec_max !== null
+    const numVal = parseFloat(calculated)
+    const outOfSpec = hasSpecLimit && !isNaN(numVal) && (
+      (spec_min !== null && numVal < spec_min) ||
+      (spec_max !== null && numVal > spec_max)
+    )
+
+    return (
+      <div className="form-group" style={{ gridColumn: 'span 2' }}>
+        <label>
+          {label}
+          {hasSpecLimit && (
+            <span style={{ fontWeight: 400, color: 'var(--c-text-3)', marginLeft: 6 }}>
+              ({spec_min !== null ? `min ${spec_min}` : ''}{spec_min !== null && spec_max !== null ? ', ' : ''}{spec_max !== null ? `max ${spec_max}` : ''})
+            </span>
+          )}
+        </label>
+        <CalcDisplay
+          value={calculated}
+          emptyText="Calculated from total mass and soluble binder content"
+          tag="mass agg"
+          large
+          outOfSpec={outOfSpec}
+          suffix="g"
+        />
         {outOfSpec && <span style={{ color: 'var(--c-warn)', fontSize: '0.8125rem' }}>⚠ Outside specification limit</span>}
       </div>
     )
