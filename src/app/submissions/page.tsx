@@ -2,6 +2,8 @@
 import { supabaseAdmin } from '@/lib/supabase'
 import Link from 'next/link'
 
+export const dynamic = 'force-dynamic'
+
 export default async function SubmissionsPage({ searchParams }) {
   const params = await searchParams
 
@@ -29,9 +31,7 @@ export default async function SubmissionsPage({ searchParams }) {
 
   const { data: submissions, error } = await query
 
-  if (error) {
-    console.error('Submissions query error:', error)
-  }
+  if (error) console.error('Submissions query error:', error)
 
   return (
     <>
@@ -43,7 +43,6 @@ export default async function SubmissionsPage({ searchParams }) {
         <Link href="/submit" className="btn btn-primary">+ New submission</Link>
       </div>
 
-      {/* Filters */}
       <form method="GET" style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem', flexWrap: 'wrap' }}>
         <div className="form-group" style={{ minWidth: 160 }}>
           <label>From</label>
@@ -86,7 +85,7 @@ export default async function SubmissionsPage({ searchParams }) {
             <tbody>
               {(submissions ?? []).map((s) => (
                 <tr key={s.id}>
-                  <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8125rem', color: 'var(--c-accent-dark)' }}>
+                  <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8125rem', color: 'var(--c-accent)' }}>
                     {s.unique_id}
                   </td>
                   <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8125rem' }}>
@@ -99,8 +98,8 @@ export default async function SubmissionsPage({ searchParams }) {
                   <td style={{ color: 'var(--c-text-2)', fontSize: '0.875rem' }}>{s.tested_by ?? '—'}</td>
                   <td>
                     <span className={`badge ${
-                      s.status === 'reviewed' ? 'badge-ok' :
-                      s.status === 'flagged'  ? 'badge-danger' : 'badge-neutral'
+                      s.status === 'reviewed' ? 'badge-ok'      :
+                      s.status === 'flagged'  ? 'badge-danger'  : 'badge-neutral'
                     }`}>
                       {s.status}
                     </span>
