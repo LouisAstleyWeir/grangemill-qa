@@ -2,6 +2,8 @@
 import Link from 'next/link'
 import { supabaseAdmin } from '@/lib/supabase'
 
+export const dynamic = 'force-dynamic'
+
 export default async function DashboardPage() {
   const { data: submissions } = await supabaseAdmin
     .from('submissions')
@@ -15,29 +17,53 @@ export default async function DashboardPage() {
     .eq('resolved', false)
     .limit(100)
 
-  const totalSubmissions = submissions?.length ?? 0
-  const unresolved = exceptions?.length ?? 0
+  const { data: allSubmissions } = await supabaseAdmin
+    .from('submissions')
+    .select('id')
+
+  const { data: allExceptions } = await supabaseAdmin
+    .from('exceptions')
+    .select('id, resolved')
+
+  const totalSubmissions = allSubmissions?.length ?? 0
+  const totalExceptions  = allExceptions?.length ?? 0
+  const unresolved       = allExceptions?.filter((e) => !e.resolved).length ?? 0
+  const resolutionRate   = totalExceptions > 0
+    ? Math.round(((totalExceptions - unresolved) / totalExceptions) * 100)
+    : 100
 
   return (
     <>
       <div className="page-header">
         <div className="page-header-text">
           <h1>Dashboard</h1>
-          <p>Grangemill · Sample registration</p>
+          <p>Grangemill · Sample registration overview</p>
         </div>
-        <Link href="/submit" className="btn btn-primary btn-lg">+ New submission</Link>
+        <Link href="/submit" className="btn btn-primary btn-lg">
+          + New submission
+        </Link>
       </div>
 
       <div className="stat-grid" style={{ marginBottom: '2rem' }}>
         <div className="stat-card">
-          <div className="stat-label">Submissions</div>
-          <div className="stat-value accent">{totalSubmissions}</div>
-          <div className="stat-sub">Last 30 records</div>
+          <div className="stat-label">Total submissions</div>
+          <div className="stat-value">{totalSubmissions}</div>
+          <div className="stat-sub">All time</div>
         </div>
         <div className="stat-card">
-          <div className="stat-label">Unresolved exceptions</div>
+          <div className="stat-label">Exceptions raised</div>
+          <div className="stat-value">{totalExceptions}</div>
+          <div className="stat-sub">Auto + manual</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-label">Unresolved</div>
           <div className="stat-value danger">{unresolved}</div>
           <div className="stat-sub">Needs attention</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-label">Resolution rate</div>
+          <div className="stat-value ok">{resolutionRate}%</div>
+          <div className="stat-sub">Of all exceptions</div>
         </div>
       </div>
 
@@ -59,7 +85,9 @@ export default async function DashboardPage() {
               <tbody>
                 {(submissions ?? []).slice(0, 8).map((s) => (
                   <tr key={s.id}>
-                    <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8125rem' }}>{s.date_of_sample}</td>
+                    <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8125rem' }}>
+                      {s.date_of_sample}
+                    </td>
                     <td>{s.sample_categories?.label ?? '—'}</td>
                     <td style={{ color: 'var(--c-text-2)' }}>{s.material_types?.label ?? '—'}</td>
                   </tr>
@@ -67,7 +95,10 @@ export default async function DashboardPage() {
                 {(submissions ?? []).length === 0 && (
                   <tr>
                     <td colSpan={3} style={{ color: 'var(--c-text-3)', textAlign: 'center', padding: '2rem' }}>
-                      No submissions yet. <Link href="/submit" style={{ color: 'var(--c-accent)' }}>Record the first one →</Link>
+                      No submissions yet.{' '}
+                      <Link href="/submit" style={{ color: 'var(--c-accent)' }}>
+                        Record the first one →
+                      </Link>
                     </td>
                   </tr>
                 )}
@@ -101,8 +132,8 @@ export default async function DashboardPage() {
                     </td>
                     <td>
                       <span className={`badge ${
-                        exc.severity === 'high' ? 'badge-danger' :
-                        exc.severity === 'medium' ? 'badge-warn' : 'badge-neutral'
+                        exc.severity === 'high'   ? 'badge-danger' :
+                        exc.severity === 'medium' ? 'badge-warn'   : 'badge-neutral'
                       }`}>
                         {exc.severity}
                       </span>
