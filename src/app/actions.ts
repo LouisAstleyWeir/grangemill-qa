@@ -134,7 +134,6 @@ export async function saveSubmissionHeader(
   header: {
     customer?: string
     site?: string
-    batch_number?: string
     analysis_type?: string
     category_hc?: string
     type_pv?: string
@@ -146,7 +145,6 @@ export async function saveSubmissionHeader(
     .update({
       customer: header.customer ?? null,
       site: header.site ?? null,
-      batch_number: header.batch_number ?? null,
       analysis_type: header.analysis_type ?? null,
       category_hc: header.category_hc ?? null,
       type_pv: header.type_pv ?? null,
