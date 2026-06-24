@@ -3,6 +3,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { supabaseAdmin } from '@/lib/supabase'
+import { getCertificateModel } from '@/lib/queries'
 
 export interface SubmitFormData {
   submission: {
@@ -124,4 +125,90 @@ export async function logReportRun(
     filters_json: filters,
     row_count: rowCount,
   })
+}
+
+// ─── Certificates ────────────────────────────────────────────────────────────
+
+export async function saveSubmissionHeader(
+  submissionId: string,
+  header: {
+    customer?: string
+    site?: string
+    batch_number?: string
+    analysis_type?: string
+    category_hc?: string
+    type_pv?: string
+    delivery_temp?: string
+  }
+): Promise<{ success: boolean; error?: string }> {
+  const { error } = await supabaseAdmin
+    .from('submissions')
+    .update({
+      customer: header.customer ?? null,
+      site: header.site ?? null,
+      batch_number: header.batch_number ?? null,
+      analysis_type: header.analysis_type ?? null,
+      category_hc: header.category_hc ?? null,
+      type_pv: header.type_pv ?? null,
+      delivery_temp: header.delivery_temp ?? null,
+    })
+    .eq('id', submissionId)
+
+  if (error) return { success: false, error: error.message }
+  revalidatePath(`/certificates/${submissionId}`)
+  return { success: true }
+}
+
+export async function issueCertificate(
+  submissionId: string,
+  issuedBy: string
+): Promise<{ success: boolean; certificateNumber?: string; error?: string }> {
+  const model = await getCertificateModel(submissionId)
+  if (!model) return { success: false, error: 'Submission not found.' }
+  if (model.tested_count === 0) {
+    return { success: false, error: 'No test results with specs to certify on this batch.' }
+  }
+
+  // Version = number of prior certificates for this batch + 1
+  const { count } = await supabaseAdmin
+    .from('certificates')
+    .select('id', { count: 'exact', head: true })
+    .eq('submission_id', submissionId)
+  const version = (count ?? 0) + 1
+
+  // Supersede any current certificate(s) for this batch
+  await supabaseAdmin
+    .from('certificates')
+    .update({ superseded: true })
+    .eq('submission_id', submissionId)
+    .eq('superseded', false)
+
+  const { data, error } = await supabaseAdmin
+    .from('certificates')
+    .insert({
+      submission_id: submissionId,
+      product_code: model.submission.product_code,
+      product_label: model.submission.product,
+      batch_number: model.submission.batch_number ?? model.submission.unique_id,
+      overall_pass: model.overall_pass,
+      version,
+      superseded: false,
+      snapshot: model,
+      issued_by: issuedBy,
+    })
+    .select('certificate_number')
+    .single()
+
+  if (error || !data) return { success: false, error: error?.message ?? 'Failed to issue certificate.' }
+
+  await supabaseAdmin
+    .from('submissions')
+    .update({ reviewed_by: issuedBy, reviewed_at: new Date().toISOString(), status: 'reviewed' })
+    .eq('id', submissionId)
+
+  revalidatePath('/certificates')
+  revalidatePath(`/certificates/${submissionId}`)
+  revalidatePath('/submissions')
+
+  return { success: true, certificateNumber: data.certificate_number }
 }
