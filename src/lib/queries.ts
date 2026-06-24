@@ -163,3 +163,39 @@ export async function getDashboardSummary(from?: string, to?: string) {
   if (error) throw error
   return data
 }
+
+// ─── Moisture series (raw deliveries) ────────────────────────────────────────
+// Response-level moisture readings for the raw-delivery time-series report.
+// Returns one row per reading: date, material, product, and the numeric value.
+
+export async function getMoistureSeries(from?: string, to?: string) {
+  const f = from ?? '2026-01-01'
+  const t = to ?? new Date().toISOString().split('T')[0]
+
+  const { data, error } = await supabaseAdmin
+    .from('responses')
+    .select(`
+      answer_numeric,
+      field_key,
+      submissions (
+        date_of_sample,
+        material_types!material_type_id ( label, code ),
+        products!product_id ( label, code )
+      )
+    `)
+    .in('field_key', ['agg6_moisture', 'agg10_moisture', 'mf_moisture'])
+    .not('answer_numeric', 'is', null)
+
+  if (error) throw error
+
+  return (data ?? [])
+    .map((r: any) => ({
+      date: r.submissions?.date_of_sample as string,
+      material: r.submissions?.material_types?.label ?? '—',
+      material_code: r.submissions?.material_types?.code ?? '',
+      product: r.submissions?.products?.label ?? '—',
+      product_code: r.submissions?.products?.code ?? '',
+      value: Number(r.answer_numeric),
+    }))
+    .filter((r) => r.date && r.date >= f && r.date <= t)
+}
