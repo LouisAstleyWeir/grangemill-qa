@@ -35,7 +35,11 @@ export default async function CertificatePage({ params }) {
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-        <CertificateActions submissionId={submissionId} header={model.submission} />
+        <CertificateActions
+          submissionId={submissionId}
+          header={model.submission}
+          materialCode={model.submission.material_code}
+        />
 
         {certs.length > 0 && (
           <div className="card">
