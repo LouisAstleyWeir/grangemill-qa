@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { getDashboardSummary, getCategories } from '@/lib/queries'
+import { getDashboardSummary, getMoistureSeries, getCategories } from '@/lib/queries'
 import ReportsClient from '@/components/dashboard/ReportsClient'
 
 export const dynamic = 'force-dynamic'
@@ -9,8 +9,9 @@ export default async function ReportsPage({ searchParams }) {
   const from = params?.from ?? '2026-01-01'
   const to   = params?.to   ?? new Date().toISOString().split('T')[0]
 
-  const [summary, categories] = await Promise.all([
+  const [summary, moisture, categories] = await Promise.all([
     getDashboardSummary(from, to),
+    getMoistureSeries(from, to),
     getCategories(),
   ])
 
@@ -34,11 +35,15 @@ export default async function ReportsPage({ searchParams }) {
         </div>
         <div className="form-group" style={{ justifyContent: 'flex-end' }}>
           <label>&nbsp;</label>
-          <button type="submit" className="btn btn-secondary">Apply</button>
+          <button type="submit" className="btn btn-secondary">Apply date range</button>
         </div>
       </form>
 
-      <ReportsClient summary={summary ?? []} categories={categories} />
+      <ReportsClient
+        summary={summary ?? []}
+        moisture={moisture ?? []}
+        categories={categories}
+      />
     </>
   )
 }
