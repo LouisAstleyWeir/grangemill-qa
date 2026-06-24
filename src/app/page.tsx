@@ -18,20 +18,16 @@ export default async function DashboardPage() {
     .eq('resolved', false)
     .limit(100)
 
-  const { data: allSubmissions } = await supabaseAdmin
-    .from('submissions')
-    .select('id')
+  // Accurate, cap-free counts straight from Postgres
+  const { data: metrics } = await supabaseAdmin.rpc('dashboard_metrics').single()
 
-  const { data: allExceptions } = await supabaseAdmin
-    .from('exceptions')
-    .select('id, resolved')
+  const thisMonth      = metrics?.submissions_this_month ?? 0
+  const totalAllTime   = metrics?.submissions_total ?? 0
+  const openExcSubs    = metrics?.submissions_with_open_exceptions ?? 0
+  const unresolved     = metrics?.unresolved_exceptions ?? 0
+  const resolutionRate = metrics?.resolution_rate ?? 100
 
-  const totalSubmissions = allSubmissions?.length ?? 0
-  const totalExceptions  = allExceptions?.length ?? 0
-  const unresolved       = allExceptions?.filter((e) => !e.resolved).length ?? 0
-  const resolutionRate   = totalExceptions > 0
-    ? Math.round(((totalExceptions - unresolved) / totalExceptions) * 100)
-    : 100
+  const monthLabel = new Date().toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })
 
   return (
     <DashboardShell>
@@ -47,19 +43,19 @@ export default async function DashboardPage() {
 
       <div className="stat-grid" style={{ marginBottom: '2rem' }}>
         <div className="stat-card">
-          <div className="stat-label">Total submissions</div>
-          <div className="stat-value">{totalSubmissions}</div>
-          <div className="stat-sub">All time</div>
+          <div className="stat-label">Submissions this month</div>
+          <div className="stat-value">{thisMonth}</div>
+          <div className="stat-sub">{monthLabel} · {totalAllTime} all time</div>
         </div>
         <div className="stat-card">
-          <div className="stat-label">Exceptions raised</div>
-          <div className="stat-value">{totalExceptions}</div>
-          <div className="stat-sub">Auto + manual</div>
+          <div className="stat-label">Submissions with open exceptions</div>
+          <div className="stat-value danger">{openExcSubs}</div>
+          <div className="stat-sub">Need attention</div>
         </div>
         <div className="stat-card">
-          <div className="stat-label">Unresolved</div>
-          <div className="stat-value danger">{unresolved}</div>
-          <div className="stat-sub">Needs attention</div>
+          <div className="stat-label">Open exception items</div>
+          <div className="stat-value">{unresolved}</div>
+          <div className="stat-sub">Across all unresolved submissions</div>
         </div>
         <div className="stat-card">
           <div className="stat-label">Resolution rate</div>
