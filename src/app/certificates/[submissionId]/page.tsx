@@ -31,7 +31,10 @@ export default async function CertificatePage({ params }) {
           <h1>Certificate · {model.submission.product ?? model.submission.material}</h1>
           <p>Batch {model.submission.batch_number ?? model.submission.unique_id}</p>
         </div>
-        <Link href="/certificates" className="btn btn-secondary">All certificates</Link>
+        <div style={{ display: 'flex', gap: '0.75rem' }}>
+          <Link href={`/certificates/${submissionId}/document`} className="btn btn-navy">View / download document</Link>
+          <Link href="/certificates" className="btn btn-secondary">All certificates</Link>
+        </div>
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
