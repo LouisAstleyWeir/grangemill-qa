@@ -48,11 +48,12 @@ export default function CertificateActions({
 
   const derivedType = (materialCode && TYPE_BY_FAMILY[materialCode]) || header.type_pv || ''
   const hotChargeApplicable = materialCode ? !!HOT_CHARGE_FAMILIES[materialCode] : true
+  // Batch / ticket is captured at submission — shown read-only here, never edited.
+  const batchRef = header.batch_number ?? '—'
 
   const [form, setForm] = useState<HeaderForm>({
     customer: header.customer ?? '',
     site: header.site ?? '',
-    batch_number: header.batch_number ?? '',
     analysis_type: header.analysis_type ?? '',
     category_hc: header.category_hc ?? '',
     delivery_temp: header.delivery_temp ?? '',
@@ -68,7 +69,6 @@ export default function CertificateActions({
     return {
       customer: form.customer,
       site: form.site,
-      batch_number: form.batch_number,
       analysis_type: form.analysis_type,
       type_pv: derivedType,
       // Clear hot-charge-only fields when they don't apply to this product
@@ -112,7 +112,13 @@ export default function CertificateActions({
           </div>
           <div className="form-group">
             <label>Batch / Ticket No.</label>
-            <input type="text" value={form.batch_number} onChange={set('batch_number')} />
+            <input
+              type="text"
+              value={batchRef}
+              readOnly
+              title="Recorded at submission"
+              style={{ background: 'var(--c-surface-2)', color: 'var(--c-text-2)' }}
+            />
           </div>
           <div className="form-group">
             <label>Analysis Type</label>
