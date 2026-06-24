@@ -54,7 +54,6 @@ export async function getAllSectionsWithQuestions(): Promise<TestSection[]> {
     .order('display_order')
   if (error) throw error
 
-  // Sort questions within each section
   return (data as TestSection[]).map((section) => ({
     ...section,
     questions: (section.questions ?? []).sort((a, b) => a.display_order - b.display_order),
@@ -70,7 +69,6 @@ export async function getBranchRules(): Promise<BranchRule[]> {
 }
 
 // ─── Branch resolution ───────────────────────────────────────────────────────
-// Given the current form state, returns the set of section codes that should be visible
 
 export function resolveVisibleSections(
   rules: BranchRule[],
@@ -79,26 +77,20 @@ export function resolveVisibleSections(
   materialCode: string,
   productCode: string,
 ): Set<string> {
-  // We need the section_id → code mapping, so this is done in the component
-  // This helper returns visible section IDs
   const visible = new Set<string>()
-
   for (const rule of rules) {
     const categoryMatch = !rule.category_code || rule.category_code === categoryCode
     const materialMatch = !rule.material_code || rule.material_code === materialCode
     const productMatch = !rule.product_code || rule.product_code === productCode
-
     let conditionMatch = true
     if (rule.condition_field && rule.condition_value) {
       const answer = state.answers[rule.condition_field]
       conditionMatch = String(answer) === rule.condition_value
     }
-
     if (categoryMatch && materialMatch && productMatch && conditionMatch) {
       visible.add(rule.section_id)
     }
   }
-
   return visible
 }
 
@@ -165,8 +157,6 @@ export async function getDashboardSummary(from?: string, to?: string) {
 }
 
 // ─── Moisture series (raw deliveries) ────────────────────────────────────────
-// Response-level moisture readings for the raw-delivery time-series report.
-// Returns one row per reading: date, material, product, and the numeric value.
 
 export async function getMoistureSeries(from?: string, to?: string) {
   const f = from ?? '2026-01-01'
@@ -198,4 +188,169 @@ export async function getMoistureSeries(from?: string, to?: string) {
       value: Number(r.answer_numeric),
     }))
     .filter((r) => r.date && r.date >= f && r.date <= t)
+}
+
+// ─── Certificates ────────────────────────────────────────────────────────────
+
+function buildParam(field_key, spec_min, spec_max, standard, qByKey, respByKey) {
+  const q = qByKey[field_key]
+  const r = respByKey[field_key]
+  const value = r && r.answer_numeric != null ? Number(r.answer_numeric) : null
+  let pass = null
+  if (value != null) {
+    const okMin = spec_min == null || value >= Number(spec_min)
+    const okMax = spec_max == null || value <= Number(spec_max)
+    pass = okMin && okMax
+  }
+  return {
+    field_key,
+    label: q?.label ?? field_key,
+    value,
+    answer_value: r?.answer_value ?? null,
+    spec_min: spec_min != null ? Number(spec_min) : null,
+    spec_max: spec_max != null ? Number(spec_max) : null,
+    standard: standard ?? null,
+    display_order: q?.display_order ?? 999,
+    pass,
+  }
+}
+
+// Builds the full Certificate-of-Analysis model for one submission (one batch):
+// its product's specs (with governing standard) joined to the captured results,
+// grouped by standard, with pass/fail per parameter and an overall verdict.
+export async function getCertificateModel(submissionId: string) {
+  const { data: sub, error: e1 } = await supabaseAdmin
+    .from('submissions')
+    .select(`
+      id, unique_id, date_of_sample, time_taken, sampled_by, tested_by, reviewed_by,
+      customer, site, batch_number, analysis_type, category_hc, type_pv, delivery_temp, status,
+      sample_categories!category_id ( label ),
+      material_types!material_type_id ( label ),
+      products!product_id ( code, label )
+    `)
+    .eq('id', submissionId)
+    .single()
+  if (e1) throw e1
+  if (!sub) return null
+
+  const productCode = sub.products?.code ?? null
+
+  const { data: resp } = await supabaseAdmin
+    .from('responses')
+    .select('field_key, answer_value, answer_numeric')
+    .eq('submission_id', submissionId)
+  const respByKey = Object.fromEntries((resp ?? []).map((r) => [r.field_key, r]))
+
+  let pspecs: any[] = []
+  if (productCode) {
+    const { data } = await supabaseAdmin
+      .from('product_specs')
+      .select('field_key, spec_min, spec_max, standard')
+      .eq('product_code', productCode)
+    pspecs = data ?? []
+  }
+
+  const fieldKeys = Array.from(new Set([
+    ...pspecs.map((p) => p.field_key),
+    ...(resp ?? []).map((r) => r.field_key),
+  ]))
+  const { data: qs } = await supabaseAdmin
+    .from('questions')
+    .select('field_key, label, spec_min, spec_max, display_order')
+    .in('field_key', fieldKeys.length ? fieldKeys : ['__none__'])
+  const qByKey = Object.fromEntries((qs ?? []).map((q) => [q.field_key, q]))
+
+  const pspecKeys = new Set(pspecs.map((p) => p.field_key))
+  const params: any[] = []
+
+  // Product-specific specs (carry the standard) take precedence
+  for (const ps of pspecs) {
+    params.push(buildParam(ps.field_key, ps.spec_min, ps.spec_max, ps.standard, qByKey, respByKey))
+  }
+  // Global question specs (aggregate/filler/rubber) for any fields not product-specced
+  for (const q of qs ?? []) {
+    if (pspecKeys.has(q.field_key)) continue
+    if (q.spec_min == null && q.spec_max == null) continue
+    params.push(buildParam(q.field_key, q.spec_min, q.spec_max, null, qByKey, respByKey))
+  }
+
+  const groupsMap: Record<string, any[]> = {}
+  for (const p of params) {
+    const key = p.standard ?? 'Other tests'
+    ;(groupsMap[key] ??= []).push(p)
+  }
+  const groups = Object.entries(groupsMap).map(([standard, list]) => ({
+    standard,
+    params: list.sort((a, b) => (a.display_order ?? 999) - (b.display_order ?? 999)),
+  }))
+
+  const tested = params.filter((p) => p.value != null)
+  const failures = tested.filter((p) => p.pass === false).length
+  const overall_pass = tested.length > 0 && failures === 0
+  const incomplete = params.some((p) => p.value == null)
+
+  return {
+    submission: {
+      id: sub.id,
+      unique_id: sub.unique_id,
+      batch_number: sub.batch_number,
+      date_of_sample: sub.date_of_sample,
+      time_taken: sub.time_taken,
+      sampled_by: sub.sampled_by,
+      tested_by: sub.tested_by,
+      reviewed_by: sub.reviewed_by,
+      customer: sub.customer,
+      site: sub.site,
+      analysis_type: sub.analysis_type,
+      category_hc: sub.category_hc,
+      type_pv: sub.type_pv,
+      delivery_temp: sub.delivery_temp,
+      status: sub.status,
+      category: sub.sample_categories?.label ?? null,
+      material: sub.material_types?.label ?? null,
+      product_code: productCode,
+      product: sub.products?.label ?? null,
+    },
+    groups,
+    overall_pass,
+    failures,
+    incomplete,
+    param_count: params.length,
+    tested_count: tested.length,
+  }
+}
+
+// Recent finished-product submissions, with any issued certificate numbers,
+// to drive the "certify a batch" list.
+export async function getCertifiableSubmissions() {
+  const { data } = await supabaseAdmin
+    .from('submissions')
+    .select(`
+      id, unique_id, batch_number, date_of_sample, status,
+      material_types!material_type_id ( label ),
+      products!product_id ( label, code ),
+      sample_categories!category_id ( code, label ),
+      certificates ( certificate_number )
+    `)
+    .order('submitted_at', { ascending: false })
+    .limit(150)
+  return (data ?? []).filter((s) => s.sample_categories?.code === 'finished_product')
+}
+
+export async function getCertificates() {
+  const { data } = await supabaseAdmin
+    .from('certificates')
+    .select('id, certificate_number, product_label, batch_number, overall_pass, issued_at, issued_by, submission_id, version, superseded')
+    .order('issued_at', { ascending: false })
+    .limit(300)
+  return data ?? []
+}
+
+export async function getCertificatesForSubmission(submissionId: string) {
+  const { data } = await supabaseAdmin
+    .from('certificates')
+    .select('id, certificate_number, overall_pass, version, superseded, issued_at, issued_by')
+    .eq('submission_id', submissionId)
+    .order('version', { ascending: false })
+  return data ?? []
 }
