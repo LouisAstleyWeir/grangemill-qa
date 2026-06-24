@@ -355,3 +355,17 @@ export async function getCertificatesForSubmission(submissionId: string) {
     .order('version', { ascending: false })
   return data ?? []
 }
+
+// Current (non-superseded) certificate for a submission, including its immutable
+// snapshot — used to render the issued PDF document.
+export async function getCurrentCertificate(submissionId: string) {
+  const { data } = await supabaseAdmin
+    .from('certificates')
+    .select('certificate_number, issued_at, issued_by, overall_pass, version, snapshot')
+    .eq('submission_id', submissionId)
+    .eq('superseded', false)
+    .order('version', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  return data ?? null
+}
