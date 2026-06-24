@@ -1,13 +1,14 @@
 'use client'
-// @ts-nocheck
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { saveSubmissionHeader, issueCertificate } from '@/app/actions'
 
+type HeaderForm = Record<string, string>
+
 export default function CertificateActions({ submissionId, header }: { submissionId: string; header: any }) {
   const router = useRouter()
-  const [form, setForm] = useState({
+  const [form, setForm] = useState<HeaderForm>({
     customer: header.customer ?? '',
     site: header.site ?? '',
     batch_number: header.batch_number ?? '',
@@ -20,7 +21,8 @@ export default function CertificateActions({ submissionId, header }: { submissio
   const [issuing, setIssuing] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
 
-  const set = (k: string) => (e: any) => setForm({ ...form, [k]: e.target.value })
+  const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement>) =>
+    setForm({ ...form, [k]: e.target.value })
 
   async function save() {
     setSaving(true); setMsg(null)
