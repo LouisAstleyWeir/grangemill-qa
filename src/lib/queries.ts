@@ -225,7 +225,7 @@ export async function getCertificateModel(submissionId: string) {
       id, unique_id, date_of_sample, time_taken, sampled_by, tested_by, reviewed_by,
       customer, site, batch_number, analysis_type, category_hc, type_pv, delivery_temp, status,
       sample_categories!category_id ( label ),
-      material_types!material_type_id ( label ),
+      material_types!material_type_id ( label, code ),
       products!product_id ( code, label )
     `)
     .eq('id', submissionId)
@@ -308,6 +308,7 @@ export async function getCertificateModel(submissionId: string) {
       status: sub.status,
       category: sub.sample_categories?.label ?? null,
       material: sub.material_types?.label ?? null,
+      material_code: sub.material_types?.code ?? null,
       product_code: productCode,
       product: sub.products?.label ?? null,
     },
