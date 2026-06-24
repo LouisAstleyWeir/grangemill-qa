@@ -223,7 +223,7 @@ export async function getCertificateModel(submissionId: string) {
     .from('submissions')
     .select(`
       id, unique_id, date_of_sample, time_taken, sampled_by, tested_by, reviewed_by,
-      customer, site, batch_number, analysis_type, category_hc, type_pv, delivery_temp, status,
+      customer, site, batch_number, ticket_url, analysis_type, category_hc, type_pv, delivery_temp, status,
       sample_categories!category_id ( label ),
       material_types!material_type_id ( label, code ),
       products!product_id ( code, label )
@@ -293,7 +293,7 @@ export async function getCertificateModel(submissionId: string) {
     submission: {
       id: sub.id,
       unique_id: sub.unique_id,
-      batch_number: sub.batch_number,
+      batch_number: sub.batch_number ?? sub.ticket_url ?? null,
       date_of_sample: sub.date_of_sample,
       time_taken: sub.time_taken,
       sampled_by: sub.sampled_by,
