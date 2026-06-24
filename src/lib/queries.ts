@@ -289,6 +289,20 @@ export async function getCertificateModel(submissionId: string) {
   const overall_pass = tested.length > 0 && failures === 0
   const incomplete = params.some((p) => p.value == null)
 
+  const byKey = {}
+  for (const r of resp ?? []) {
+    byKey[r.field_key] = {
+      label: qByKey[r.field_key]?.label ?? r.field_key,
+      value: r.answer_numeric != null ? Number(r.answer_numeric) : null,
+      answer_value: r.answer_value ?? null,
+    }
+  }
+  const paramByKey = {}
+  for (const p of params) {
+    paramByKey[p.field_key] = { spec_min: p.spec_min, spec_max: p.spec_max, pass: p.pass, label: p.label, standard: p.standard }
+  }
+  const compositionPrefix = byKey['c1_total_mass'] ? 'c1' : byKey['c2_total_mass'] ? 'c2' : null
+
   return {
     submission: {
       id: sub.id,
@@ -318,6 +332,9 @@ export async function getCertificateModel(submissionId: string) {
     incomplete,
     param_count: params.length,
     tested_count: tested.length,
+    byKey,
+    paramByKey,
+    compositionPrefix,
   }
 }
 
