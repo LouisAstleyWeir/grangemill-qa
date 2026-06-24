@@ -36,6 +36,7 @@ export async function getProducts(materialTypeId: string): Promise<Product[]> {
     .from('products')
     .select('*')
     .eq('material_type_id', materialTypeId)
+    .eq('is_active', true)
     .order('label')
   if (error) throw error
   return data
