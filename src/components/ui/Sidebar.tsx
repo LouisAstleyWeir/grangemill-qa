@@ -5,11 +5,12 @@ import { usePathname } from 'next/navigation'
 import IKOLogo from './IKOLogo'
 
 const links = [
-  { href: '/',            label: 'Dashboard',      icon: '▦' },
-  { href: '/submit',      label: 'New submission',  icon: '+' },
-  { href: '/submissions', label: 'Submissions',     icon: '≡' },
-  { href: '/exceptions',  label: 'Exceptions',      icon: '⚠' },
-  { href: '/reports',     label: 'Reports',         icon: '↗' },
+  { href: '/',             label: 'Dashboard',       icon: '▦' },
+  { href: '/submit',       label: 'New submission',  icon: '+' },
+  { href: '/submissions',  label: 'Submissions',     icon: '≡' },
+  { href: '/exceptions',   label: 'Exceptions',      icon: '⚠' },
+  { href: '/reports',      label: 'Reports',         icon: '↗' },
+  { href: '/certificates', label: 'Certificates',    icon: '◆' },
 ]
 
 export default function Sidebar() {
