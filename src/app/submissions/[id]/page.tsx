@@ -1,7 +1,7 @@
 // @ts-nocheck
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
-import { getSubmissionDetail } from '@/lib/queries'
+import { getSubmissionDetail, getSubmissionEdits } from '@/lib/queries'
 
 export const dynamic = 'force-dynamic'
 
@@ -27,6 +27,8 @@ export default async function SubmissionDetailPage({ params }: { params: Promise
   const { id } = await params
   const detail = await getSubmissionDetail(id)
   if (!detail) notFound()
+
+  const edits = await getSubmissionEdits(id)
 
   const { submission: s, groups, exceptions, certificates } = detail
   const isDraft = s.status === 'draft'
@@ -66,9 +68,13 @@ export default async function SubmissionDetailPage({ params }: { params: Promise
           </p>
         </div>
         <div style={{ display: 'flex', gap: '0.75rem' }}>
-          {isDraft && (
+          {isDraft ? (
             <Link href={`/submit?draft=${s.id}`} className="btn btn-primary">
               Continue editing
+            </Link>
+          ) : (
+            <Link href={`/submit?edit=${s.id}`} className="btn btn-secondary">
+              Edit
             </Link>
           )}
           {certificates.length > 0 && (
@@ -201,6 +207,38 @@ export default async function SubmissionDetailPage({ params }: { params: Promise
             </div>
           </div>
         ))
+      )}
+
+      {/* Edit history */}
+      {edits.length > 0 && (
+        <div className="card" style={{ marginBottom: '1.5rem' }}>
+          <div className="card-header">
+            <h2>Edit history</h2>
+            <span className="badge badge-neutral">{edits.length} {edits.length === 1 ? 'edit' : 'edits'}</span>
+          </div>
+          <div style={{ overflowX: 'auto' }}>
+            <table className="data-grid">
+              <thead>
+                <tr>
+                  <th>When</th>
+                  <th>Edited by</th>
+                  <th>Reason</th>
+                </tr>
+              </thead>
+              <tbody>
+                {edits.map((e) => (
+                  <tr key={e.id}>
+                    <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8125rem', whiteSpace: 'nowrap' }}>
+                      {e.edited_at ? new Date(e.edited_at).toLocaleString('en-GB') : '—'}
+                    </td>
+                    <td style={{ fontSize: '0.875rem' }}>{e.edited_by ?? '—'}</td>
+                    <td style={{ fontSize: '0.875rem', color: 'var(--c-text-2)' }}>{e.comment ?? '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
       )}
     </>
   )
