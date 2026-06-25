@@ -56,7 +56,9 @@ export async function getAllSectionsWithQuestions(): Promise<TestSection[]> {
 
   return (data as TestSection[]).map((section) => ({
     ...section,
-    questions: (section.questions ?? []).sort((a, b) => a.display_order - b.display_order),
+    questions: (section.questions ?? [])
+      .filter((q) => q.is_active !== false)
+      .sort((a, b) => a.display_order - b.display_order),
   }))
 }
 
