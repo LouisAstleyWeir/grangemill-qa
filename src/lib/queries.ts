@@ -248,6 +248,80 @@ export async function getSubmissionDetail(submissionId: string) {
   }
 }
 
+// Loads a submission in a shape ready to re-populate the form: the cascading
+// selection (ids + codes for branch resolution) plus a flat answers map merged
+// from the captured responses and the authoritative header columns. Used by the
+// submit page when resuming a draft (?draft=) or editing a record (?edit=).
+export async function getSubmissionForEdit(submissionId: string) {
+  const { data: sub, error } = await supabaseAdmin
+    .from('submissions')
+    .select(`
+      id, status, category_id, material_type_id, product_id,
+      unique_id, date_of_sample, time_taken, sampled_by, tested_by,
+      sample_categories!category_id ( code ),
+      material_types!material_type_id ( code ),
+      products!product_id ( code )
+    `)
+    .eq('id', submissionId)
+    .maybeSingle()
+  if (error) throw error
+  if (!sub) return null
+
+  const { data: resp } = await supabaseAdmin
+    .from('responses')
+    .select('field_key, answer_value')
+    .eq('submission_id', submissionId)
+
+  const answers: Record<string, string> = {}
+  for (const r of resp ?? []) {
+    if (r.answer_value !== null && r.answer_value !== undefined) {
+      answers[r.field_key] = r.answer_value
+    }
+  }
+
+  // Header columns are authoritative over any duplicated response rows
+  answers['date_of_sample'] = sub.date_of_sample ?? ''
+  answers['time_taken'] = sub.time_taken ?? ''
+  answers['sampled_by'] = sub.sampled_by ?? ''
+  answers['tested_by'] = sub.tested_by ?? ''
+
+  // A draft's auto-generated placeholder id shouldn't be shown back to the user
+  const isPlaceholder =
+    sub.status === 'draft' &&
+    typeof sub.unique_id === 'string' &&
+    sub.unique_id.startsWith('DRAFT-')
+  answers['unique_id'] = isPlaceholder ? '' : (sub.unique_id ?? '')
+
+  return {
+    submissionId: sub.id,
+    status: sub.status,
+    categoryId: sub.category_id ?? '',
+    categoryCode: sub.sample_categories?.code ?? '',
+    materialTypeId: sub.material_type_id ?? '',
+    materialCode: sub.material_types?.code ?? '',
+    productId: sub.product_id ?? '',
+    productCode: sub.products?.code ?? '',
+    answers,
+  }
+}
+
+// Edit audit trail for a submission. Returns [] (rather than throwing) if the
+// submission_edits table has not yet been created, so the detail view is safe
+// to deploy before the migration is run.
+export async function getSubmissionEdits(submissionId: string) {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('submission_edits')
+      .select('id, edited_by, comment, prev_status, edited_at')
+      .eq('submission_id', submissionId)
+      .order('edited_at', { ascending: false })
+    if (error) return []
+    return data ?? []
+  } catch {
+    return []
+  }
+}
+
 export async function getExceptions(filters?: { resolved?: boolean; severity?: string }) {
   let query = supabaseAdmin
     .from('exceptions')
