@@ -184,18 +184,13 @@ function calcSievePctPassing(
   retFieldKey: string,
   allAnswers: Record<string, string | string[]>
 ): string {
+  // % passing = 100 - % retained for EVERY sieve. The retained boxes hold the
+  // cumulative % retained, so 100 - (cumulative % retained) is the % passing.
+  // (Previously this used "previous passing - % retained" for sieves below the
+  // top, which produced the negative / incorrect values.)
   const pctRetained = parseFloat(calcSievePctRetained(retainedKey, massAggKey, allAnswers))
   if (isNaN(pctRetained)) return ''
-
-  if (prevPassingKey === null) {
-    // Top sieve — % passing = 100 - % retained
-    return parseFloat((100 - pctRetained).toFixed(2)).toString()
-  }
-
-  // All other sieves — % passing = previous % passing - % retained
-  const prevPassing = parseFloat(String(allAnswers[prevPassingKey] ?? ''))
-  if (isNaN(prevPassing)) return ''
-  return parseFloat((prevPassing - pctRetained).toFixed(2)).toString()
+  return parseFloat((100 - pctRetained).toFixed(2)).toString()
 }
 
 // ── Shared calculated display box ─────────────────────────────────────────────
@@ -347,20 +342,20 @@ export default function QuestionField({ question, value, onChange, error, allAns
       entry.retainedKey, entry.massAggKey, entry.prevPassingKey, retFieldKey, allAnswers
     )
 
-    // Sync both values when this field renders
     const currentRetained = String(allAnswers[retFieldKey] ?? '')
     const currentPassing  = String(allAnswers[pasFieldKey] ?? '')
-    if (pctRetained !== currentRetained) setTimeout(() => onChange(pctRetained), 0)
 
-    // Only render the pair once — on the % retained field, show both
-    // On the % passing field, render nothing (already shown in the retained render)
-    if (type === 'passing') return null
-
-    // Sync passing value too
-    if (pctPassing !== currentPassing) {
-      // We can't call onChange for a different field here, so we store it via allAnswers
-      // The passing field will be synced when it renders (returns null but still calls sync)
+    // The % passing field stores its OWN value (100 - % retained) and renders
+    // nothing — the pair is shown on the % retained field below. Previously this
+    // branch synced the retained value into the passing field, which is why the
+    // stored "% passing" was actually the retained value.
+    if (type === 'passing') {
+      if (pctPassing !== currentPassing) setTimeout(() => onChange(pctPassing), 0)
+      return null
     }
+
+    // The % retained field syncs the retained value and renders both boxes.
+    if (pctRetained !== currentRetained) setTimeout(() => onChange(pctRetained), 0)
 
     const hasSpecLimit = spec_min !== null || spec_max !== null
     const retNum = parseFloat(pctRetained)
