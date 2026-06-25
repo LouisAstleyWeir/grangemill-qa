@@ -1,30 +1,68 @@
 'use client'
 
 import { useState, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import type { TestSection, BranchRule, SampleCategory, Question } from '@/types'
-import { submitQAForm, saveDraft } from '@/app/actions'
+import { submitQAForm, saveDraft, updateSubmission } from '@/app/actions'
 import QuestionField from './QuestionField'
 import SampleSelector from './SampleSelector'
+
+type FormMode = 'new' | 'draft' | 'edit'
+
+interface InitialData {
+  submissionId: string
+  status: string
+  categoryId: string
+  categoryCode: string
+  materialTypeId: string
+  materialCode: string
+  productId: string
+  productCode: string
+  answers: Record<string, string>
+}
 
 interface Props {
   sections: TestSection[]
   branchRules: BranchRule[]
   categories: SampleCategory[]
+  initialData?: InitialData | null
+  mode?: FormMode
 }
 
-export default function QAForm({ sections, branchRules, categories }: Props) {
-  const [answers, setAnswers] = useState<Record<string, string | string[]>>({})
-  const [categoryId, setCategoryId] = useState('')
-  const [materialTypeId, setMaterialTypeId] = useState('')
-  const [productId, setProductId] = useState('')
-  const [categoryCode, setCategoryCode] = useState('')
-  const [materialCode, setMaterialCode] = useState('')
-  const [productCode, setProductCode] = useState('')
+export default function QAForm({
+  sections,
+  branchRules,
+  categories,
+  initialData = null,
+  mode = 'new',
+}: Props) {
+  const router = useRouter()
+
+  const [answers, setAnswers] = useState<Record<string, string | string[]>>(initialData?.answers ?? {})
+  const [categoryId, setCategoryId] = useState(initialData?.categoryId ?? '')
+  const [materialTypeId, setMaterialTypeId] = useState(initialData?.materialTypeId ?? '')
+  const [productId, setProductId] = useState(initialData?.productId ?? '')
+  const [categoryCode, setCategoryCode] = useState(initialData?.categoryCode ?? '')
+  const [materialCode, setMaterialCode] = useState(initialData?.materialCode ?? '')
+  const [productCode, setProductCode] = useState(initialData?.productCode ?? '')
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [submitting, setSubmitting] = useState(false)
   const [savingDraft, setSavingDraft] = useState(false)
-  const [draftId, setDraftId] = useState<string | null>(null)
   const [result, setResult] = useState<{ success: boolean; message: string } | null>(null)
+
+  // Identity of the record being worked on (if any)
+  const loadedId = initialData?.submissionId ?? null
+  const editId = mode === 'edit' ? loadedId : null
+
+  // Draft id drives "update this row" for draft saves and "promote not insert"
+  // for final submission.
+  const [draftId, setDraftId] = useState<string | null>(mode === 'draft' ? loadedId : null)
+
+  // Edit-mode audit fields
+  const [editorName, setEditorName] = useState('')
+  const [editComment, setEditComment] = useState('')
+  const [editErrors, setEditErrors] = useState<{ editorName?: string; editComment?: string }>({})
 
   const visibleSectionIds = useCallback((): Set<string> => {
     const visible = new Set<string>()
@@ -32,7 +70,6 @@ export default function QAForm({ sections, branchRules, categories }: Props) {
       const catMatch = !rule.category_code || rule.category_code === categoryCode
       const matMatch = !rule.material_code || rule.material_code === materialCode
 
-      // If rule requires a specific product, only match when a product is actually selected
       const prodMatch = !rule.product_code
         ? true
         : productCode !== '' && rule.product_code === productCode
@@ -61,7 +98,6 @@ export default function QAForm({ sections, branchRules, categories }: Props) {
     setErrors((prev) => { const n = { ...prev }; delete n[fieldKey]; return n })
   }
 
-  // Builds the submission + responses payload from current form state.
   const buildPayload = () => {
     const allQuestions: Question[] = visibleSections.flatMap((s) => s.questions ?? [])
     const responses = allQuestions
@@ -178,8 +214,46 @@ export default function QAForm({ sections, branchRules, categories }: Props) {
     }
   }
 
+  const handleSaveChanges = async () => {
+    if (!validate()) {
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+      return
+    }
+    const ae: { editorName?: string; editComment?: string } = {}
+    if (!editorName.trim()) ae.editorName = 'Required'
+    if (!editComment.trim()) ae.editComment = 'Required'
+    setEditErrors(ae)
+    if (Object.keys(ae).length > 0) {
+      setResult({ success: false, message: 'Add your name and a reason for the edit before saving.' })
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+      return
+    }
+
+    setSubmitting(true)
+    setResult(null)
+
+    const res = await updateSubmission(editId as string, buildPayload(), {
+      editorName: editorName.trim(),
+      comment: editComment.trim(),
+    })
+
+    setSubmitting(false)
+
+    if (res.success) {
+      router.push(`/submissions/${editId}`)
+    } else {
+      setResult({ success: false, message: res.error ?? 'Failed to save the edit.' })
+    }
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+
+    if (mode === 'edit') {
+      await handleSaveChanges()
+      return
+    }
+
     if (!validate()) {
       window.scrollTo({ top: 0, behavior: 'smooth' })
       return
@@ -193,6 +267,10 @@ export default function QAForm({ sections, branchRules, categories }: Props) {
     setSubmitting(false)
 
     if (res.success) {
+      if (loadedId) {
+        router.push(`/submissions/${res.submissionId}`)
+        return
+      }
       setResult({ success: true, message: `Submission saved · ID: ${res.submissionId}` })
       resetForm()
       window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -203,6 +281,7 @@ export default function QAForm({ sections, branchRules, categories }: Props) {
 
   const errorCount = Object.keys(errors).length
   const busy = submitting || savingDraft
+  const primaryLabel = mode === 'edit' ? 'Save changes' : 'Save submission'
 
   return (
     <form onSubmit={handleSubmit} style={{ maxWidth: 'var(--max-w-form)' }} noValidate>
@@ -213,15 +292,57 @@ export default function QAForm({ sections, branchRules, categories }: Props) {
         </div>
       )}
 
-      {draftId && (
+      {mode === 'draft' && (
         <div className="alert alert-warn" style={{ marginBottom: '1.5rem' }}>
-          Editing a saved draft. It won’t appear as a finished submission until you select “Save submission”.
+          Finishing a saved draft. It won’t become a finished submission until you select “Save submission”.
+        </div>
+      )}
+
+      {mode === 'edit' && (
+        <div className="alert alert-warn" style={{ marginBottom: '1.5rem' }}>
+          Editing a finished submission. Your name and the reason for the change will be recorded against this record.
         </div>
       )}
 
       {errorCount > 0 && (
         <div className="alert alert-danger" style={{ marginBottom: '1.5rem' }}>
           {errorCount} field{errorCount > 1 ? 's' : ''} need attention before saving.
+        </div>
+      )}
+
+      {mode === 'edit' && (
+        <div className="card" style={{ marginBottom: '1.5rem' }}>
+          <div className="card-header">
+            <div className="section-header" style={{ margin: 0, flex: 1 }}>
+              <div className="section-number">!</div>
+              <h2>Edit details (required)</h2>
+            </div>
+          </div>
+          <div className="card-body">
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '1.25rem' }}>
+              <div className="form-group">
+                <label>Edited by <span className="required">*</span></label>
+                <input
+                  type="text"
+                  value={editorName}
+                  onChange={(e) => { setEditorName(e.target.value); setEditErrors((p) => ({ ...p, editorName: undefined })) }}
+                  placeholder="Your name"
+                  className={editErrors.editorName ? 'error' : ''}
+                />
+                {editErrors.editorName && <span style={{ color: 'var(--c-danger)', fontSize: '0.8125rem' }}>{editErrors.editorName}</span>}
+              </div>
+              <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+                <label>Reason for edit <span className="required">*</span></label>
+                <textarea
+                  value={editComment}
+                  onChange={(e) => { setEditComment(e.target.value); setEditErrors((p) => ({ ...p, editComment: undefined })) }}
+                  placeholder="Why is this record being amended?"
+                  className={editErrors.editComment ? 'error' : ''}
+                />
+                {editErrors.editComment && <span style={{ color: 'var(--c-danger)', fontSize: '0.8125rem' }}>{editErrors.editComment}</span>}
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
@@ -281,29 +402,40 @@ export default function QAForm({ sections, branchRules, categories }: Props) {
 
       {categoryId && (
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem', paddingBottom: '3rem' }}>
-          <button
-            type="button"
-            className="btn btn-secondary btn-lg"
-            onClick={() => {
-              if (confirm('Clear all answers and start again?')) {
-                resetForm()
-              }
-            }}
-            disabled={busy}
-          >
-            Clear form
-          </button>
-          <button
-            type="button"
-            className="btn btn-navy btn-lg"
-            onClick={handleSaveDraft}
-            disabled={busy}
-            title="Save progress and finish later"
-          >
-            {savingDraft ? 'Saving…' : 'Save draft'}
-          </button>
+          {mode === 'edit' ? (
+            <Link
+              href={`/submissions/${editId}`}
+              className="btn btn-secondary btn-lg"
+            >
+              Cancel
+            </Link>
+          ) : (
+            <>
+              <button
+                type="button"
+                className="btn btn-secondary btn-lg"
+                onClick={() => {
+                  if (confirm('Clear all answers and start again?')) {
+                    resetForm()
+                  }
+                }}
+                disabled={busy}
+              >
+                Clear form
+              </button>
+              <button
+                type="button"
+                className="btn btn-navy btn-lg"
+                onClick={handleSaveDraft}
+                disabled={busy}
+                title="Save progress and finish later"
+              >
+                {savingDraft ? 'Saving…' : 'Save draft'}
+              </button>
+            </>
+          )}
           <button type="submit" className="btn btn-primary btn-lg" disabled={busy}>
-            {submitting ? 'Saving…' : 'Save submission'}
+            {submitting ? 'Saving…' : primaryLabel}
           </button>
         </div>
       )}
