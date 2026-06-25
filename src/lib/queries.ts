@@ -128,6 +128,130 @@ export async function getSubmissions(filters?: {
   return data
 }
 
+// Full read model for a single submission: header + all captured responses
+// grouped by their test section (with real question labels and order), any
+// exceptions raised against the batch, and any certificates issued for it.
+// Used by the submission detail view (/submissions/[id]).
+export async function getSubmissionDetail(submissionId: string) {
+  // 1. Submission header + reference joins
+  const { data: sub, error } = await supabaseAdmin
+    .from('submissions')
+    .select(`
+      id, unique_id, batch_number, date_of_sample, time_taken,
+      sampled_by, tested_by, reviewed_by, reviewed_at,
+      submitted_at, submitted_by, status, notes, ticket_url,
+      customer, site, analysis_type, category_hc, type_pv, delivery_temp,
+      sample_categories!category_id ( label, code ),
+      material_types!material_type_id ( label, code ),
+      products!product_id ( label, code ),
+      users!submitted_by ( full_name )
+    `)
+    .eq('id', submissionId)
+    .maybeSingle()
+  if (error) throw error
+  if (!sub) return null
+
+  // 2. Captured responses
+  const { data: resp } = await supabaseAdmin
+    .from('responses')
+    .select('field_key, answer_value, answer_numeric')
+    .eq('submission_id', submissionId)
+  const respByKey = Object.fromEntries((resp ?? []).map((r) => [r.field_key, r]))
+
+  // 3. Section/question structure for labels, ordering, and grouping
+  const sections = await getAllSectionsWithQuestions()
+
+  const groups: any[] = []
+  const usedKeys = new Set<string>()
+
+  for (const section of sections) {
+    // Header fields are shown in the header card, not as a data group
+    if (section.code === 'header') {
+      for (const q of section.questions ?? []) usedKeys.add(q.field_key)
+      continue
+    }
+    const rows: any[] = []
+    for (const q of section.questions ?? []) {
+      const r = respByKey[q.field_key]
+      if (r === undefined) continue
+      usedKeys.add(q.field_key)
+      rows.push({
+        field_key: q.field_key,
+        label: q.label ?? q.field_key,
+        answer_value: r.answer_value ?? null,
+        answer_numeric: r.answer_numeric ?? null,
+        question_type: q.question_type ?? null,
+        display_order: q.display_order ?? 999,
+      })
+    }
+    if (rows.length) {
+      groups.push({
+        section_id: section.id,
+        section_code: section.code,
+        section_label: section.label,
+        display_order: section.display_order ?? 999,
+        rows: rows.sort((a, b) => a.display_order - b.display_order),
+      })
+    }
+  }
+
+  // Any responses with no matching question (legacy / branch drift) — keep visible
+  const orphans = (resp ?? []).filter((r) => !usedKeys.has(r.field_key))
+  if (orphans.length) {
+    groups.push({
+      section_id: '_other',
+      section_code: 'other',
+      section_label: 'Other captured fields',
+      display_order: 9999,
+      rows: orphans.map((r) => ({
+        field_key: r.field_key,
+        label: r.field_key,
+        answer_value: r.answer_value ?? null,
+        answer_numeric: r.answer_numeric ?? null,
+        question_type: null,
+        display_order: 999,
+      })),
+    })
+  }
+
+  groups.sort((a, b) => a.display_order - b.display_order)
+
+  // 4. Exceptions raised against this submission
+  const { data: exc } = await supabaseAdmin
+    .from('exceptions')
+    .select(`
+      id, field_key, answer_value, spec_min, spec_max,
+      severity, trigger_type, resolved, created_at,
+      questions!question_id ( label )
+    `)
+    .eq('submission_id', submissionId)
+    .order('created_at', { ascending: false })
+
+  // 5. Certificates issued for this submission
+  const { data: certs } = await supabaseAdmin
+    .from('certificates')
+    .select('id, certificate_number, overall_pass, version, superseded, issued_at, issued_by')
+    .eq('submission_id', submissionId)
+    .order('version', { ascending: false })
+
+  return {
+    submission: {
+      ...sub,
+      submitted_by_name: sub.users?.full_name ?? null,
+      category: sub.sample_categories?.label ?? null,
+      category_code: sub.sample_categories?.code ?? null,
+      material: sub.material_types?.label ?? null,
+      material_code: sub.material_types?.code ?? null,
+      product: sub.products?.label ?? null,
+      product_code: sub.products?.code ?? null,
+    },
+    groups,
+    exceptions: exc ?? [],
+    certificates: certs ?? [],
+    response_count: (resp ?? []).length,
+  }
+}
+
 export async function getExceptions(filters?: { resolved?: boolean; severity?: string }) {
   let query = supabaseAdmin
     .from('exceptions')
