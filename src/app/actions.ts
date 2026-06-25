@@ -240,6 +240,113 @@ export async function saveDraft(
   }
 }
 
+// ─── Edit a finished submission (audited) ──────────────────────────────────
+// Edits to a submitted record require an editor name and a reason. The audit
+// row (with a full snapshot of the record *before* the change) is written FIRST;
+// if it can't be recorded, no changes are made. Only the fields the form manages
+// are updated — customer/site/notes/ticket and certificate fields are preserved.
+export async function updateSubmission(
+  submissionId: string,
+  data: SubmitFormData,
+  audit: { editorName: string; comment: string }
+): Promise<SubmitResult> {
+  try {
+    if (!audit?.editorName?.trim() || !audit?.comment?.trim()) {
+      return { success: false, error: 'An editor name and a reason for the edit are required.' }
+    }
+
+    // Snapshot current state for the audit trail
+    const { data: prev } = await supabaseAdmin
+      .from('submissions')
+      .select('*')
+      .eq('id', submissionId)
+      .maybeSingle()
+
+    if (!prev) {
+      return { success: false, error: 'Submission not found.' }
+    }
+
+    const { data: prevResp } = await supabaseAdmin
+      .from('responses')
+      .select('field_key, answer_value, answer_numeric')
+      .eq('submission_id', submissionId)
+
+    // Record the edit BEFORE mutating; abort if it can't be stored
+    const { error: auditErr } = await supabaseAdmin
+      .from('submission_edits')
+      .insert({
+        submission_id: submissionId,
+        edited_by: audit.editorName,
+        comment: audit.comment,
+        prev_status: prev.status ?? null,
+        prev_snapshot: { submission: prev, responses: prevResp ?? [] },
+      })
+
+    if (auditErr) {
+      console.error('Edit audit insert error:', auditErr)
+      return { success: false, error: 'Could not record the edit, so no changes were made. (Has the submission_edits table been created?)' }
+    }
+
+    // Update only the fields the form manages — preserve everything else
+    const { error: updErr } = await supabaseAdmin
+      .from('submissions')
+      .update({
+        category_id: data.submission.category_id,
+        material_type_id: data.submission.material_type_id,
+        product_id: data.submission.product_id,
+        unique_id: data.submission.unique_id,
+        date_of_sample: data.submission.date_of_sample,
+        time_taken: data.submission.time_taken,
+        sampled_by: data.submission.sampled_by,
+        tested_by: data.submission.tested_by,
+      })
+      .eq('id', submissionId)
+
+    if (updErr) {
+      console.error('Submission update error:', updErr)
+      return { success: false, error: 'Failed to update submission. Please try again.' }
+    }
+
+    // Replace the response set
+    const { error: delErr } = await supabaseAdmin
+      .from('responses')
+      .delete()
+      .eq('submission_id', submissionId)
+    if (delErr) {
+      console.error('Response clear error:', delErr)
+      return { success: false, error: 'Failed to update test results. Please try again.' }
+    }
+
+    const responsesWithId = cleanResponses(data.responses, submissionId)
+    if (responsesWithId.length > 0) {
+      const { error: respErr } = await supabaseAdmin
+        .from('responses')
+        .insert(responsesWithId)
+      if (respErr) {
+        console.error('Response insert error:', respErr)
+        return { success: false, error: 'Failed to save test results. Please try again.' }
+      }
+    }
+
+    // Re-evaluate out-of-spec exceptions for the edited values
+    const { error: excError } = await supabaseAdmin.rpc(
+      'raise_out_of_spec_exceptions',
+      { p_submission_id: submissionId }
+    )
+    if (excError) console.error('Exception detection error:', excError)
+
+    revalidatePath('/')
+    revalidatePath('/submissions')
+    revalidatePath(`/submissions/${submissionId}`)
+    revalidatePath('/exceptions')
+
+    return { success: true, submissionId }
+  } catch (err) {
+    console.error('Unexpected edit error:', err)
+    return { success: false, error: 'An unexpected error occurred while saving the edit.' }
+  }
+}
+
 export async function resolveException(
   exceptionId: string,
   resolvedBy: string,
