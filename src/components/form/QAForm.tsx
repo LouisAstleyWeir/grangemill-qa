@@ -2,7 +2,7 @@
 
 import { useState, useCallback } from 'react'
 import type { TestSection, BranchRule, SampleCategory, Question } from '@/types'
-import { submitQAForm } from '@/app/actions'
+import { submitQAForm, saveDraft } from '@/app/actions'
 import QuestionField from './QuestionField'
 import SampleSelector from './SampleSelector'
 
@@ -22,6 +22,8 @@ export default function QAForm({ sections, branchRules, categories }: Props) {
   const [productCode, setProductCode] = useState('')
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [submitting, setSubmitting] = useState(false)
+  const [savingDraft, setSavingDraft] = useState(false)
+  const [draftId, setDraftId] = useState<string | null>(null)
   const [result, setResult] = useState<{ success: boolean; message: string } | null>(null)
 
   const visibleSectionIds = useCallback((): Set<string> => {
@@ -57,6 +59,50 @@ export default function QAForm({ sections, branchRules, categories }: Props) {
   const handleAnswer = (fieldKey: string, value: string | string[]) => {
     setAnswers((prev) => ({ ...prev, [fieldKey]: value }))
     setErrors((prev) => { const n = { ...prev }; delete n[fieldKey]; return n })
+  }
+
+  // Builds the submission + responses payload from current form state.
+  const buildPayload = () => {
+    const allQuestions: Question[] = visibleSections.flatMap((s) => s.questions ?? [])
+    const responses = allQuestions
+      .filter((q) => q.field_key !== 'ticket_upload')
+      .map((q) => {
+        const val = answers[q.field_key]
+        const strVal = Array.isArray(val) ? val.join(', ') : (val ?? null)
+        const numVal = q.question_type === 'number' && strVal ? parseFloat(strVal) : null
+        return {
+          question_id: q.id,
+          field_key: q.field_key,
+          answer_value: strVal,
+          answer_numeric: isNaN(numVal as number) ? null : numVal,
+        }
+      })
+      .filter((r) => r.answer_value !== null)
+
+    return {
+      submission: {
+        category_id: categoryId,
+        material_type_id: materialTypeId,
+        product_id: productId || null,
+        unique_id: String(answers['unique_id'] ?? ''),
+        date_of_sample: String(answers['date_of_sample'] ?? ''),
+        time_taken: String(answers['time_taken'] ?? '') || null,
+        sampled_by: String(answers['sampled_by'] ?? ''),
+        tested_by: String(answers['tested_by'] ?? ''),
+        ticket_url: null,
+        notes: null,
+      },
+      responses,
+    }
+  }
+
+  const resetForm = () => {
+    setAnswers({})
+    setCategoryId(''); setCategoryCode('')
+    setMaterialTypeId(''); setMaterialCode('')
+    setProductId(''); setProductCode('')
+    setDraftId(null)
+    setErrors({})
   }
 
   const validate = (): boolean => {
@@ -109,6 +155,29 @@ export default function QAForm({ sections, branchRules, categories }: Props) {
     return Object.keys(newErrors).length === 0
   }
 
+  const handleSaveDraft = async () => {
+    if (!categoryId || !materialTypeId) {
+      setResult({ success: false, message: 'Choose a category and material type before saving a draft.' })
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+      return
+    }
+
+    setSavingDraft(true)
+    setResult(null)
+
+    const res = await saveDraft(buildPayload(), draftId || undefined)
+
+    setSavingDraft(false)
+
+    if (res.success) {
+      setDraftId(res.submissionId ?? null)
+      setResult({ success: true, message: 'Draft saved — you can leave this and finish it later from Submissions.' })
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+    } else {
+      setResult({ success: false, message: res.error ?? 'Failed to save draft.' })
+    }
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!validate()) {
@@ -119,46 +188,13 @@ export default function QAForm({ sections, branchRules, categories }: Props) {
     setSubmitting(true)
     setResult(null)
 
-    const allQuestions: Question[] = visibleSections.flatMap((s) => s.questions ?? [])
-    const responses = allQuestions
-      .filter((q) => q.field_key !== 'ticket_upload')
-      .map((q) => {
-        const val = answers[q.field_key]
-        const strVal = Array.isArray(val) ? val.join(', ') : (val ?? null)
-        const numVal = q.question_type === 'number' && strVal ? parseFloat(strVal) : null
-        return {
-          question_id: q.id,
-          field_key: q.field_key,
-          answer_value: strVal,
-          answer_numeric: isNaN(numVal as number) ? null : numVal,
-        }
-      })
-      .filter((r) => r.answer_value !== null)
-
-    const res = await submitQAForm({
-      submission: {
-        category_id: categoryId,
-        material_type_id: materialTypeId,
-        product_id: productId || null,
-        unique_id: String(answers['unique_id'] ?? ''),
-        date_of_sample: String(answers['date_of_sample'] ?? ''),
-        time_taken: String(answers['time_taken'] ?? '') || null,
-        sampled_by: String(answers['sampled_by'] ?? ''),
-        tested_by: String(answers['tested_by'] ?? ''),
-        ticket_url: null,
-        notes: null,
-      },
-      responses,
-    })
+    const res = await submitQAForm(buildPayload(), draftId || undefined)
 
     setSubmitting(false)
 
     if (res.success) {
       setResult({ success: true, message: `Submission saved · ID: ${res.submissionId}` })
-      setAnswers({})
-      setCategoryId(''); setCategoryCode('')
-      setMaterialTypeId(''); setMaterialCode('')
-      setProductId(''); setProductCode('')
+      resetForm()
       window.scrollTo({ top: 0, behavior: 'smooth' })
     } else {
       setResult({ success: false, message: res.error ?? 'Unknown error' })
@@ -166,6 +202,7 @@ export default function QAForm({ sections, branchRules, categories }: Props) {
   }
 
   const errorCount = Object.keys(errors).length
+  const busy = submitting || savingDraft
 
   return (
     <form onSubmit={handleSubmit} style={{ maxWidth: 'var(--max-w-form)' }} noValidate>
@@ -173,6 +210,12 @@ export default function QAForm({ sections, branchRules, categories }: Props) {
         <div className={`alert ${result.success ? 'alert-success' : 'alert-danger'}`}
           style={{ marginBottom: '1.5rem' }}>
           {result.success ? '✓ ' : '✕ '}{result.message}
+        </div>
+      )}
+
+      {draftId && (
+        <div className="alert alert-warn" style={{ marginBottom: '1.5rem' }}>
+          Editing a saved draft. It won’t appear as a finished submission until you select “Save submission”.
         </div>
       )}
 
@@ -243,17 +286,23 @@ export default function QAForm({ sections, branchRules, categories }: Props) {
             className="btn btn-secondary btn-lg"
             onClick={() => {
               if (confirm('Clear all answers and start again?')) {
-                setAnswers({})
-                setCategoryId(''); setCategoryCode('')
-                setMaterialTypeId(''); setMaterialCode('')
-                setProductId(''); setProductCode('')
-                setErrors({})
+                resetForm()
               }
             }}
+            disabled={busy}
           >
             Clear form
           </button>
-          <button type="submit" className="btn btn-primary btn-lg" disabled={submitting}>
+          <button
+            type="button"
+            className="btn btn-navy btn-lg"
+            onClick={handleSaveDraft}
+            disabled={busy}
+            title="Save progress and finish later"
+          >
+            {savingDraft ? 'Saving…' : 'Save draft'}
+          </button>
+          <button type="submit" className="btn btn-primary btn-lg" disabled={busy}>
             {submitting ? 'Saving…' : 'Save submission'}
           </button>
         </div>
