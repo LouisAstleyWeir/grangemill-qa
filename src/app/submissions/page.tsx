@@ -56,6 +56,7 @@ export default async function SubmissionsPage({ searchParams }) {
           <label>Status</label>
           <select name="status" defaultValue={params?.status}>
             <option value="">All statuses</option>
+            <option value="draft">Draft</option>
             <option value="submitted">Submitted</option>
             <option value="reviewed">Reviewed</option>
             <option value="flagged">Flagged</option>
@@ -85,8 +86,13 @@ export default async function SubmissionsPage({ searchParams }) {
             <tbody>
               {(submissions ?? []).map((s) => (
                 <tr key={s.id}>
-                  <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8125rem', color: 'var(--c-accent)' }}>
-                    {s.unique_id}
+                  <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8125rem' }}>
+                    <Link
+                      href={`/submissions/${s.id}`}
+                      style={{ color: 'var(--c-accent)', textDecoration: 'none', fontWeight: 600 }}
+                    >
+                      {s.unique_id}
+                    </Link>
                   </td>
                   <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8125rem' }}>
                     {s.date_of_sample}
@@ -99,7 +105,8 @@ export default async function SubmissionsPage({ searchParams }) {
                   <td>
                     <span className={`badge ${
                       s.status === 'reviewed' ? 'badge-ok'      :
-                      s.status === 'flagged'  ? 'badge-danger'  : 'badge-neutral'
+                      s.status === 'flagged'  ? 'badge-danger'  :
+                      s.status === 'draft'    ? 'badge-warn'    : 'badge-neutral'
                     }`}>
                       {s.status}
                     </span>
