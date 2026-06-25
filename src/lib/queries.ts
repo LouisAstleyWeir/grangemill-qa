@@ -137,14 +137,10 @@ export async function getSubmissionDetail(submissionId: string) {
   const { data: sub, error } = await supabaseAdmin
     .from('submissions')
     .select(`
-      id, unique_id, batch_number, date_of_sample, time_taken,
-      sampled_by, tested_by, reviewed_by, reviewed_at,
-      submitted_at, submitted_by, status, notes, ticket_url,
-      customer, site, analysis_type, category_hc, type_pv, delivery_temp,
+      *,
       sample_categories!category_id ( label, code ),
       material_types!material_type_id ( label, code ),
-      products!product_id ( label, code ),
-      users!submitted_by ( full_name )
+      products!product_id ( label, code )
     `)
     .eq('id', submissionId)
     .maybeSingle()
@@ -237,7 +233,7 @@ export async function getSubmissionDetail(submissionId: string) {
   return {
     submission: {
       ...sub,
-      submitted_by_name: sub.users?.full_name ?? null,
+      submitted_by_name: sub.submitted_by ?? null,
       category: sub.sample_categories?.label ?? null,
       category_code: sub.sample_categories?.code ?? null,
       material: sub.material_types?.label ?? null,
