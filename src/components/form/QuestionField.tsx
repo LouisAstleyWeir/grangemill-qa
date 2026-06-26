@@ -118,6 +118,8 @@ type ChainLookup = {
   type: 'retained' | 'passing'
   retFieldKey: string
   pasFieldKey: string
+  chain: SieveChainEntry[]
+  index: number
 }
 
 function buildChainLookup(chain: SieveChainEntry[], prefix: string): Record<string, ChainLookup> {
@@ -127,8 +129,8 @@ function buildChainLookup(chain: SieveChainEntry[], prefix: string): Record<stri
     const sieve = sieves[i]
     const retKey = `${prefix}_pct_ret_${sieve}`
     const pasKey = `${prefix}_pct_pas_${sieve}`
-    lookup[retKey] = { entry, type: 'retained', retFieldKey: retKey, pasFieldKey: pasKey }
-    lookup[pasKey] = { entry, type: 'passing',  retFieldKey: retKey, pasFieldKey: pasKey }
+    lookup[retKey] = { entry, type: 'retained', retFieldKey: retKey, pasFieldKey: pasKey, chain, index: i }
+    lookup[pasKey] = { entry, type: 'passing',  retFieldKey: retKey, pasFieldKey: pasKey, chain, index: i }
   })
   return lookup
 }
@@ -178,19 +180,27 @@ function calcSievePctRetained(retainedKey: string, massAggKey: string, allAnswer
 }
 
 function calcSievePctPassing(
-  retainedKey: string,
+  chain: SieveChainEntry[],
+  index: number,
   massAggKey: string,
-  prevPassingKey: string | null,
-  retFieldKey: string,
   allAnswers: Record<string, string | string[]>
 ): string {
-  // % passing = 100 - % retained for EVERY sieve. The retained boxes hold the
-  // cumulative % retained, so 100 - (cumulative % retained) is the % passing.
-  // (Previously this used "previous passing - % retained" for sieves below the
-  // top, which produced the negative / incorrect values.)
-  const pctRetained = parseFloat(calcSievePctRetained(retainedKey, massAggKey, allAnswers))
-  if (isNaN(pctRetained)) return ''
-  return parseFloat((100 - pctRetained).toFixed(2)).toString()
+  // % passing = 100 - CUMULATIVE % retained down to this sieve.
+  // Weights are entered INDIVIDUALLY per sieve, so cumulative % retained =
+  // (sum of weights from the top sieve to this one) / mass of aggregate * 100.
+  // (An earlier version used 100 - this sieve's % retained, which is only valid
+  // for cumulative weight entry and produced non-monotonic passing on real
+  // individual-weight data — verified against the lab's worked example.)
+  const massAgg = parseFloat(String(allAnswers[massAggKey] ?? ''))
+  if (isNaN(massAgg) || massAgg === 0) return ''
+  let cumWeight = 0
+  let anyValid = false
+  for (let i = 0; i <= index; i++) {
+    const w = parseFloat(String(allAnswers[chain[i].retainedKey] ?? ''))
+    if (!isNaN(w)) { cumWeight += w; anyValid = true }
+  }
+  if (!anyValid) return ''
+  return parseFloat((100 - (cumWeight / massAgg) * 100).toFixed(2)).toString()
 }
 
 // ── Shared calculated display box ─────────────────────────────────────────────
@@ -335,12 +345,10 @@ export default function QuestionField({ question, value, onChange, error, allAns
 
   // ── Composition sieve % retained and % passing ────────────────────────────
   if (ALL_CHAIN_LOOKUP[field_key]) {
-    const { entry, type, retFieldKey, pasFieldKey } = ALL_CHAIN_LOOKUP[field_key]
+    const { entry, type, retFieldKey, pasFieldKey, chain, index } = ALL_CHAIN_LOOKUP[field_key]
 
     const pctRetained = calcSievePctRetained(entry.retainedKey, entry.massAggKey, allAnswers)
-    const pctPassing  = calcSievePctPassing(
-      entry.retainedKey, entry.massAggKey, entry.prevPassingKey, retFieldKey, allAnswers
-    )
+    const pctPassing  = calcSievePctPassing(chain, index, entry.massAggKey, allAnswers)
 
     const currentRetained = String(allAnswers[retFieldKey] ?? '')
     const currentPassing  = String(allAnswers[pasFieldKey] ?? '')
